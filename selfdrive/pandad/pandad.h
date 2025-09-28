@@ -17,6 +17,7 @@ private:
   void updateMultiplexingMode();
   std::string fetchCarParams();
   void setSafetyMode(const std::string &params_string);
+  void setSafetyModeFromParam(cereal::CarParams::SafetyModel safety_model);
 
   bool initialized_ = false;
   bool log_once_ = false;

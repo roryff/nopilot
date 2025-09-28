@@ -6,12 +6,10 @@ void PandaSafety::configureSafetyMode(bool is_onroad) {
   if (is_onroad && !safety_configured_) {
     updateMultiplexingMode();
 
-    auto car_params = fetchCarParams();
-    if (!car_params.empty()) {
-      LOGW("got %lu bytes CarParams", car_params.size());
-      setSafetyMode(car_params);
-      safety_configured_ = true;
-    }
+    // Use PandaSafetyModel parameter directly instead of waiting for CarParams
+    cereal::CarParams::SafetyModel safety_model = cereal::CarParams::SafetyModel::ALL_OUTPUT;
+    setSafetyModeFromParam(safety_model);
+    safety_configured_ = true;
   } else if (!is_onroad) {
     initialized_ = false;
     safety_configured_ = false;
@@ -75,6 +73,18 @@ void PandaSafety::setSafetyMode(const std::string &params_string) {
     }
 
     LOGW("Panda %d: setting safety model: %d, param: %d, alternative experience: %d", i, (int)safety_model, safety_param, alternative_experience);
+    pandas_[i]->set_alternative_experience(alternative_experience);
+    pandas_[i]->set_safety_model(safety_model, safety_param);
+  }
+}
+
+void PandaSafety::setSafetyModeFromParam(cereal::CarParams::SafetyModel safety_model) {
+  // Set the same safety model for all pandas with default parameters
+  uint16_t safety_param = 0U;
+  uint16_t alternative_experience = 0U;
+
+  for (int i = 0; i < pandas_.size(); ++i) {
+    LOGW("Panda %d: setting safety model from param: %d, param: %d, alternative experience: %d", i, (int)safety_model, safety_param, alternative_experience);
     pandas_[i]->set_alternative_experience(alternative_experience);
     pandas_[i]->set_safety_model(safety_model, safety_param);
   }
