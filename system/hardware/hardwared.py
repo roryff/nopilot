@@ -224,8 +224,10 @@ def hardware_thread(end_event, hw_queue) -> None:
 
     if sm.updated['pandaStates'] and len(pandaStates) > 0:
 
-      # Set ignition based on any panda connected
-      onroad_conditions["ignition"] = any(ps.ignitionLine or ps.ignitionCan for ps in pandaStates if ps.pandaType != log.PandaState.PandaType.unknown)
+      # Set ignition based on any panda connected OR manual override from test script OR STARTED env var
+      panda_ignition = any(ps.ignitionLine or ps.ignitionCan for ps in pandaStates if ps.pandaType != log.PandaState.PandaType.unknown)
+      started_env = os.getenv("STARTED") is not None
+      onroad_conditions["ignition"] = panda_ignition or started_env
 
       pandaState = pandaStates[0]
 
