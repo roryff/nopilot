@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import math
+import os
 import numpy as np
 
 from cereal import messaging, car, log
@@ -8,7 +9,6 @@ from opendbc.car.vehicle_model import VehicleModel
 from openpilot.common.realtime import DT_CTRL, Ratekeeper
 from openpilot.common.params import Params
 from openpilot.common.swaglog import cloudlog
-
 LongCtrlState = car.CarControl.Actuators.LongControlState
 MAX_LAT_ACCEL = 3.0
 print_loop=1000
@@ -18,11 +18,11 @@ def joystickd_thread():
   print("joystickd: Starting up...")
 
   try:
-    if env.get("SKIP_FW_QUERY"):
+    if os.environ.get("SKIP_FW_QUERY"):
         params_source="CarParamsPersistent"
     else:
         params_source="CarParams"
-      print("joystickd: Waiting for Carparams")
+    print("joystickd: Waiting for Carparams")
     CP = messaging.log_from_bytes(params.get(params_source, block=True), car.CarParams)
     print(f"joystickd: Got CarParams for {CP.carFingerprint}")
     VM = VehicleModel(CP)
