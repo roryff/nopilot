@@ -11,6 +11,7 @@
 
 #include "cereal/gen/cpp/car.capnp.h"
 #include "cereal/messaging/messaging.h"
+#include "common/params.h"
 #include "common/ratekeeper.h"
 #include "common/swaglog.h"
 #include "common/timing.h"
@@ -407,9 +408,9 @@ void process_peripheral_state(Panda *panda, PubMaster *pm, bool no_fan_control) 
     }
 
     if (ir_pwr != prev_ir_pwr || sm.frame % 100 == 0) {
-      int16_t ir_panda = util::map_val(ir_pwr, 0, 100, 0, MAX_IR_PANDA_VAL); 
+      int16_t ir_panda = util::map_val(ir_pwr, 0, 100, 0, MAX_IR_PANDA_VAL);
       panda->set_ir_pwr(ir_panda);
-      Hardware::set_ir_power(ir_pwr); 
+      Hardware::set_ir_power(ir_pwr);
       prev_ir_pwr = ir_pwr;
     }
   }
@@ -417,7 +418,6 @@ void process_peripheral_state(Panda *panda, PubMaster *pm, bool no_fan_control) 
 
 void pandad_run(std::vector<Panda *> &pandas) {
   const bool no_fan_control = getenv("NO_FAN_CONTROL") != nullptr;
-  const bool spoofing_started = getenv("STARTED") != nullptr;
   const bool fake_send = getenv("FAKESEND") != nullptr;
 
   // Start the CAN send thread
@@ -426,6 +426,7 @@ void pandad_run(std::vector<Panda *> &pandas) {
   Params params;
   RateKeeper rk("pandad", 100);
   SubMaster sm({"selfdriveState"});
+  SubMaster replay_sm({"canReplay"});  // Subscribe to canReplay for forwarding
   PubMaster pm({"can", "pandaStates", "peripheralState"});
   PandaSafety panda_safety(pandas);
   Panda *peripheral_panda = pandas[0];
@@ -435,6 +436,26 @@ void pandad_run(std::vector<Panda *> &pandas) {
   // Main loop: receive CAN data and process states
   while (!do_exit && check_all_connected(pandas)) {
     can_recv(pandas, &pm);
+
+    // Forward canReplay messages to main can topic
+    replay_sm.update(0);
+    if (replay_sm.updated("canReplay")) {
+      auto replay_msg = replay_sm["canReplay"];
+      if (replay_msg.hasCan()) {
+        MessageBuilder msg;
+        auto evt = msg.initEvent();
+        evt.setValid(true);
+        auto can_list = replay_msg.getCan();
+        auto canData = evt.initCan(can_list.size());
+
+        for (size_t i = 0; i < can_list.size(); ++i) {
+          canData[i].setAddress(can_list[i].getAddress());
+          canData[i].setDat(can_list[i].getDat());
+          canData[i].setSrc(can_list[i].getSrc());
+        }
+        pm.send("can", msg);
+      }
+    }
 
     // Process peripheral state at 20 Hz
     if (rk.frame() % 5 == 0) {
@@ -446,6 +467,8 @@ void pandad_run(std::vector<Panda *> &pandas) {
       sm.update(0);
       engaged = sm.allAliveAndValid({"selfdriveState"}) && sm["selfdriveState"].getSelfdriveState().getEnabled();
       is_onroad = params.getBool("IsOnroad");
+      // Check for ignition spoofing - either STARTED env var or IsOnroad parameter
+      bool spoofing_started = (getenv("STARTED") != nullptr);
       process_panda_state(pandas, &pm, engaged, is_onroad, spoofing_started);
       panda_safety.configureSafetyMode(is_onroad);
     }

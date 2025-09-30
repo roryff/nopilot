@@ -24,6 +24,7 @@ _services: dict[str, tuple] = {
   "deviceState": (True, 2., 1),
   "touch": (True, 20., 1),
   "can": (True, 100., 2053),  # decimation gives ~3 msgs in a full segment
+  "canReplay": (False, 100.),  # Replay CAN messages from route data
   "controlsState": (True, 100., 10),
   "selfdriveState": (True, 100., 10),
   "pandaStates": (True, 10., 1),
