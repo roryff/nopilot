@@ -10,7 +10,8 @@ os.environ['FILEREADER_CACHE'] = '1'
 from openpilot.common.realtime import config_realtime_process, Ratekeeper, DT_CTRL
 from openpilot.selfdrive.pandad import can_capnp_to_list
 from openpilot.tools.lib.logreader import LogReader
-from panda import PandaJungle
+from openpilot.common.params import Params
+from cereal import messaging
 
 # set both to cycle power or ignition
 PWR_ON = int(os.getenv("PWR_ON", "0"))
@@ -21,64 +22,47 @@ ENABLE_IGN = IGN_ON > 0 and IGN_OFF > 0
 ENABLE_PWR = PWR_ON > 0 and PWR_OFF > 0
 
 
-def send_thread(j: PandaJungle, flock):
-  if "FLASH" in os.environ:
-    with flock:
-      j.flash()
-
-  j.reset()
-  for i in [0, 1, 2, 3, 0xFFFF]:
-    j.can_clear(i)
-    j.set_can_speed_kbps(i, 500)
-  j.set_ignition(True)
-  j.set_panda_power(True)
-  j.set_can_loopback(False)
+def send_thread_can_msgs():
+  """Send real CAN messages from route data through messaging system"""
+  params = Params()
+  pm = messaging.PubMaster(['canReplay'])  # Use separate topic to avoid conflict
 
   rk = Ratekeeper(1 / DT_CTRL, print_delay_threshold=None)
+  print("Starting CAN message replay through canReplay messaging topic")
+
   while True:
-    # handle cycling
-    if ENABLE_PWR:
-      i = (rk.frame*DT_CTRL) % (PWR_ON + PWR_OFF) < PWR_ON
-      j.set_panda_power(i)
-    if ENABLE_IGN:
-      i = (rk.frame*DT_CTRL) % (IGN_ON + IGN_OFF) < IGN_ON
-      j.set_ignition(i)
-
-    send = CAN_MSGS[rk.frame % len(CAN_MSGS)]
-    send = list(filter(lambda x: x[-1] <= 2, send))
     try:
-      j.can_send_many(send)
-    except usb1.USBErrorTimeout:
-      # timeout is fine, just means the CAN TX buffer is full
-      pass
+      is_onroad = params.get_bool("IsOnroad")
 
-    # Drain panda message buffer
-    j.can_recv()
-    rk.keep_time()
+      if is_onroad and len(CAN_MSGS) > 0:
+        # Get the next set of CAN messages from the route data
+        send = CAN_MSGS[rk.frame % len(CAN_MSGS)]
+        send = list(filter(lambda x: x[-1] <= 2, send))  # Filter to buses 0-2
+
+        if send:
+          # Create messaging format for canReplay topic
+          msg = messaging.new_message('can', len(send))
+          for i, (addr, data, src) in enumerate(send):
+            msg.can[i].address = addr
+            msg.can[i].dat = data
+            msg.can[i].src = src
+
+          pm.send('canReplay', msg)
+
+      rk.keep_time()
+    except Exception as e:
+      print(f"Error in CAN replay: {e}")
+      time.sleep(1)
+
+
+
 
 
 def connect():
   config_realtime_process(3, 55)
 
-  serials = {}
-  flashing_lock = threading.Lock()
-  while True:
-    # look for new devices
-    for s in PandaJungle.list():
-      if s not in serials:
-        print("starting send thread for", s)
-        serials[s] = threading.Thread(target=send_thread, args=(PandaJungle(s), flashing_lock))
-        serials[s].start()
-
-    # try to join all send threads
-    cur_serials = serials.copy()
-    for s, t in cur_serials.items():
-      if t is  not None:
-        t.join(0.01)
-        if not t.is_alive():
-          del serials[s]
-
-    time.sleep(1)
+  # Send CAN messages through messaging system (no hardware required)
+  send_thread_can_msgs()
 
 
 def load_route(route_or_segment_name):
@@ -91,7 +75,7 @@ def load_route(route_or_segment_name):
 
 
 if __name__ == "__main__":
-  parser = argparse.ArgumentParser(description="Replay CAN messages from a route to all connected pandas and jungles in a loop.",
+  parser = argparse.ArgumentParser(description="Replay CAN messages from a route through messaging system.",
                                    formatter_class=argparse.ArgumentDefaultsHelpFormatter)
   parser.add_argument("route_or_segment_name", nargs='?', help="The route or segment name to replay. If not specified, a default public route will be used.")
   args = parser.parse_args()
@@ -100,6 +84,7 @@ if __name__ == "__main__":
     args.route_or_segment_name = "77611a1fac303767/2020-03-24--09-50-38/2:4"
 
   CAN_MSGS = load_route(args.route_or_segment_name)
+  print(f"Loaded {len(CAN_MSGS)} CAN message frames from route")
 
   if ENABLE_PWR:
     print(f"Cycling power: on for {PWR_ON}s, off for {PWR_OFF}s")
