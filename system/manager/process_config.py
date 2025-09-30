@@ -73,7 +73,7 @@ procs = [
   PythonProcess("webcamerad", "tools.webcam.camerad", driverview, enabled=WEBCAM),
   PythonProcess("proclogd", "system.proclogd", only_onroad, enabled=platform.system() != "Darwin"),
   PythonProcess("journald", "system.journald", only_onroad, platform.system() != "Darwin"),
-  PythonProcess("micd", "system.micd", iscar),
+  #PythonProcess("micd", "system.micd", iscar),
   PythonProcess("timed", "system.timed", always_run, enabled=not PC),
 
   #PythonProcess("modeld", "selfdrive.modeld.modeld", only_onroad),
@@ -82,14 +82,14 @@ procs = [
   PythonProcess("sensord", "system.sensord.sensord", only_onroad, enabled=not PC),
   NativeProcess("ui", "selfdrive/ui", ["./ui"], always_run, watchdog_max_dt=(5 if not PC else None)),
   PythonProcess("raylib_ui", "selfdrive.ui.ui", always_run, enabled=False, watchdog_max_dt=(5 if not PC else None)),
-  PythonProcess("soundd", "selfdrive.ui.soundd", only_onroad),
+  #PythonProcess("soundd", "selfdrive.ui.soundd", only_onroad),
   PythonProcess("locationd", "selfdrive.locationd.locationd", only_onroad),
   NativeProcess("_pandad", "selfdrive/pandad", ["./pandad"], always_run, enabled=False),
   PythonProcess("calibrationd", "selfdrive.locationd.calibrationd", only_onroad),
   PythonProcess("torqued", "selfdrive.locationd.torqued", only_onroad),
   #PythonProcess("controlsd", "selfdrive.controls.controlsd", and_(not_joystick, iscar)),
-  PythonProcess("joystickd", "tools.joystick.joystickd", or_(joystick, notcar)),
-  PythonProcess("selfdrived", "selfdrive.selfdrived.selfdrived", only_onroad),
+  PythonProcess("joystickd", "tools.joystick.joystickd"),
+  #PythonProcess("selfdrived", "selfdrive.selfdrived.selfdrived", only_onroad),
   PythonProcess("card", "selfdrive.car.card", only_onroad),
   PythonProcess("deleter", "system.loggerd.deleter", always_run),
   #PythonProcess("dmonitoringd", "selfdrive.monitoring.dmonitoringd", driverview, enabled=(WEBCAM or not PC)),
@@ -113,7 +113,7 @@ procs = [
   NativeProcess("bridge", "cereal/messaging", ["./bridge"], notcar),
   PythonProcess("webrtcd", "system.webrtc.webrtcd", notcar),
   PythonProcess("webjoystick", "tools.bodyteleop.web", notcar),
-  PythonProcess("joystick", "tools.joystick.joystick_control", and_(joystick, iscar)),
+  #PythonProcess("joystick", "tools.joystick.joystick_control", and_(joystick, iscar)),
 ]
 
 managed_processes = {p.name: p for p in procs}
