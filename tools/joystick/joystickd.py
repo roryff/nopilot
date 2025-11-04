@@ -107,9 +107,17 @@ def joystickd_thread():
               override_type = "BRAKE" if brake_override else "GAS"
               print(f"joystickd: {override_type} OVERRIDE - System disabled! Press cruise button to re-enable.")
 
+        # Debug: Print all button events
+        if len(CS.buttonEvents) > 0:
+          print(f"joystickd: Button events detected: {len(CS.buttonEvents)} buttons")
+          for button in CS.buttonEvents:
+            print(f"  - Button type: {button.type}, pressed: {button.pressed}")
+
         # Check for cruise control button to re-enable
         if user_disabled and len(CS.buttonEvents) > 0:
+          print(f"joystickd: User disabled, checking buttons for re-enable...")
           for button in CS.buttonEvents:
+            print(f"  - Checking button type: {button.type}, pressed: {button.pressed}")
             if button.type in [log.CarState.ButtonEvent.Type.setCruise,
                              log.CarState.ButtonEvent.Type.resumeCruise,
                              log.CarState.ButtonEvent.Type.mainCruise] and button.pressed:
