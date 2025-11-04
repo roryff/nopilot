@@ -83,25 +83,25 @@ procs = [
   NativeProcess("ui", "selfdrive/ui", ["./ui"], always_run, watchdog_max_dt=(5 if not PC else None)),
   PythonProcess("raylib_ui", "selfdrive.ui.ui", always_run, enabled=False, watchdog_max_dt=(5 if not PC else None)),
   #PythonProcess("soundd", "selfdrive.ui.soundd", only_onroad),
-  PythonProcess("locationd", "selfdrive.locationd.locationd", only_onroad),
+  #PythonProcess("locationd", "selfdrive.locationd.locationd", only_onroad),  # Not needed for joystick
   NativeProcess("_pandad", "selfdrive/pandad", ["./pandad"], always_run, enabled=False),
-  PythonProcess("calibrationd", "selfdrive.locationd.calibrationd", only_onroad),
-  PythonProcess("torqued", "selfdrive.locationd.torqued", only_onroad),
+  #PythonProcess("calibrationd", "selfdrive.locationd.calibrationd", only_onroad),  # Not needed for joystick
+  #PythonProcess("torqued", "selfdrive.locationd.torqued", only_onroad),  # Not needed for joystick
   #PythonProcess("controlsd", "selfdrive.controls.controlsd", and_(not_joystick, iscar)),
   PythonProcess("joystickd", "tools.joystick.joystickd", or_(joystick, notcar)),
-  PythonProcess("selfdrived", "selfdrive.selfdrived.selfdrived", only_onroad),
+  #PythonProcess("selfdrived", "selfdrive.selfdrived.selfdrived", only_onroad),  # Disabled for pure joystick mode
   PythonProcess("card", "selfdrive.car.card", only_onroad),
   PythonProcess("deleter", "system.loggerd.deleter", always_run),
   #PythonProcess("dmonitoringd", "selfdrive.monitoring.dmonitoringd", driverview, enabled=(WEBCAM or not PC)),
   PythonProcess("qcomgpsd", "system.qcomgpsd.qcomgpsd", qcomgps, enabled=TICI),
   PythonProcess("pandad", "selfdrive.pandad.pandad", always_run),
-  PythonProcess("paramsd", "selfdrive.locationd.paramsd", only_onroad),
-  PythonProcess("lagd", "selfdrive.locationd.lagd", only_onroad),
+  #PythonProcess("paramsd", "selfdrive.locationd.paramsd", only_onroad),  # Not needed for joystick
+  #PythonProcess("lagd", "selfdrive.locationd.lagd", only_onroad),  # Not needed for joystick
   PythonProcess("ubloxd", "system.ubloxd.ubloxd", ublox, enabled=TICI),
   PythonProcess("pigeond", "system.ubloxd.pigeond", ublox, enabled=TICI),
-  PythonProcess("plannerd", "selfdrive.controls.plannerd", not_long_maneuver),
+  #PythonProcess("plannerd", "selfdrive.controls.plannerd", not_long_maneuver),  # Not needed for joystick
   PythonProcess("maneuversd", "tools.longitudinal_maneuvers.maneuversd", long_maneuver),
-  PythonProcess("radard", "selfdrive.controls.radard", only_onroad),
+  #PythonProcess("radard", "selfdrive.controls.radard", only_onroad),  # Not needed for joystick
   PythonProcess("hardwared", "system.hardware.hardwared", always_run),
   PythonProcess("tombstoned", "system.tombstoned", always_run, enabled=not PC),
   #PythonProcess("updated", "system.updated.updated", only_offroad, enabled=not PC),
@@ -113,7 +113,7 @@ procs = [
   NativeProcess("bridge", "cereal/messaging", ["./bridge"], notcar),
   PythonProcess("webrtcd", "system.webrtc.webrtcd", notcar),
   PythonProcess("webjoystick", "tools.bodyteleop.web", notcar),
-  PythonProcess("joystick", "tools.joystick.joystick_control", and_(joystick, iscar)),
+  #PythonProcess("joystick", "tools.joystick.joystick_control", joystick),  # Enabled for joystick mode
 ]
 
 managed_processes = {p.name: p for p in procs}
