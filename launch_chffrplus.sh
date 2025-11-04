@@ -77,6 +77,9 @@ function launch {
   # write tmux scrollback to a file
   tmux capture-pane -pq -S-1000 > /tmp/launch_log
 
+  # Enable joystick debug mode
+  python3 -c "from openpilot.common.params import Params; Params().put_bool('JoystickDebugMode', True)"
+
   # start manager
   cd system/manager
   if [ ! -f $DIR/prebuilt ]; then
