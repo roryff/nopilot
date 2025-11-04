@@ -118,9 +118,9 @@ def joystickd_thread():
           print(f"joystickd: User disabled, checking buttons for re-enable...")
           for button in CS.buttonEvents:
             print(f"  - Checking button type: {button.type}, pressed: {button.pressed}")
-            if button.type in [log.CarState.ButtonEvent.Type.setCruise,
-                             log.CarState.ButtonEvent.Type.resumeCruise,
-                             log.CarState.ButtonEvent.Type.mainCruise] and button.pressed:
+            if button.type in [car.CarState.ButtonEvent.Type.setCruise,
+                             car.CarState.ButtonEvent.Type.resumeCruise,
+                             car.CarState.ButtonEvent.Type.mainCruise] and button.pressed:
               user_disabled = False
               system_enabled = True
               print(f"joystickd: CRUISE BUTTON pressed - System re-enabled!")
