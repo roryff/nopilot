@@ -57,6 +57,7 @@ private:
   QLabel *panda_connected_label;
   QLabel *panda_ignition_label;
   QLabel *panda_controls_allowed_label;
+  QLabel *panda_hyundai_long_label;
 
   // Data storage
   float actuator_torque = -1.0f;
@@ -80,6 +81,7 @@ private:
   bool panda_connected = false;
   bool panda_ignition = false;
   bool panda_controls_allowed = false;
+  bool panda_hyundai_longitudinal = false;
 
   bool is_metric = false;
 

@@ -45,6 +45,7 @@ VehicleStatusWidget::VehicleStatusWidget(QWidget *parent) : QWidget(parent) {
     panda_connected_label = new QLabel("Connected: N/A");
     panda_ignition_label = new QLabel("Ignition: N/A");
     panda_controls_allowed_label = new QLabel("Controls Allowed: N/A");
+    panda_hyundai_long_label = new QLabel("Longitudinal: N/A");
 
     setupLayout();
 }
@@ -74,7 +75,7 @@ void VehicleStatusWidget::setupLayout() {
                                       yaw_rate_label, brake_pressed_label, gas_pressed_label };
 
     QList<QLabel*> control_labels = { enabled_label, active_label, engageable_label };
-    QList<QLabel*> panda_labels = { panda_connected_label, panda_ignition_label, panda_controls_allowed_label };
+    QList<QLabel*> panda_labels = { panda_connected_label, panda_ignition_label, panda_controls_allowed_label, panda_hyundai_long_label };
 
     QList<QList<QLabel*>> columns = { actuator_labels, vehicle_labels, control_labels, panda_labels };
     QList<QLabel*> headers = { actuator_header, vehicle_header, control_header, panda_header };
@@ -251,31 +252,44 @@ void VehicleStatusWidget::updatePandaData(const UIState &s) {
         panda_ignition = panda_state.getIgnitionLine();
         panda_controls_allowed = panda_state.getControlsAllowed();
 
+        // Get longitudinal control status from carParams (works for all car types)
+        bool openpilot_longitudinal = false;
+        if (sm.alive("carParams") && sm.valid("carParams") && sm.rcv_frame("carParams") > 0) {
+          const auto &car_params = sm["carParams"].getCarParams();
+          openpilot_longitudinal = car_params.getOpenpilotLongitudinalControl();
+        }
+        panda_hyundai_longitudinal = openpilot_longitudinal;
+
         // Update panda labels
         panda_connected_label->setText(QString("Connected: Yes"));
         panda_ignition_label->setText(QString("Ignition: %1").arg(panda_ignition ? "On" : "Off"));
         panda_controls_allowed_label->setText(QString("Controls Allowed: %1").arg(panda_controls_allowed ? "YES" : "NO"));
+        panda_hyundai_long_label->setText(QString("Longitudinal: %1").arg(openpilot_longitudinal ? "OPENPILOT" : "STOCK"));
 
         // Update colors based on state
         QString connected_color = "color: lime;";
         QString ignition_color = panda_ignition ? "color: lime;" : "color: orange;";
         QString controls_allowed_color = panda_controls_allowed ? "color: lime;" : "color: red;";
+        QString longitudinal_color = openpilot_longitudinal ? "color: cyan;" : "color: yellow;";
 
         panda_connected_label->setStyleSheet(QString("background: rgba(0,0,0,180); padding: 3px; border-radius: 4px; margin: 1px; border: 1px solid rgba(255,255,255,50); %1").arg(connected_color));
         panda_ignition_label->setStyleSheet(QString("background: rgba(0,0,0,180); padding: 3px; border-radius: 4px; margin: 1px; border: 1px solid rgba(255,255,255,50); %1").arg(ignition_color));
         panda_controls_allowed_label->setStyleSheet(QString("background: rgba(0,0,0,180); padding: 3px; border-radius: 4px; margin: 1px; border: 1px solid rgba(255,255,255,50); %1").arg(controls_allowed_color));
+        panda_hyundai_long_label->setStyleSheet(QString("background: rgba(0,0,0,180); padding: 3px; border-radius: 4px; margin: 1px; border: 1px solid rgba(255,255,255,50); %1").arg(longitudinal_color));
 
       } else {
         panda_connected = false;
         panda_connected_label->setText("Connected: No");
         panda_ignition_label->setText("Ignition: N/A");
         panda_controls_allowed_label->setText("Controls Allowed: N/A");
+        panda_hyundai_long_label->setText("Longitudinal: N/A");
       }
     } else {
       panda_connected = false;
       panda_connected_label->setText("Connected: No");
       panda_ignition_label->setText("Ignition: N/A");
       panda_controls_allowed_label->setText("Controls Allowed: N/A");
+      panda_hyundai_long_label->setText("Longitudinal: N/A");
     }
   } catch (const std::exception &e) {
     // Handle any errors gracefully - keep previous values
