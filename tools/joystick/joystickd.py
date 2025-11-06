@@ -29,7 +29,7 @@ def joystickd_thread():
     print("joystickd: VehicleModel initialized")
 
     sm = messaging.SubMaster(['carState', 'liveParameters', 'testJoystick'], frequency=1. / DT_CTRL)
-    pm = messaging.PubMaster(['carControl', 'controlsState', 'selfdriveState'])
+    pm = messaging.PubMaster(['carControl', 'controlsState', 'selfdriveState', 'onroadEvents'])
 
     rk = Ratekeeper(100, print_delay_threshold=None)
 
@@ -46,6 +46,15 @@ def joystickd_thread():
       try:
         sm.update(0)
         loop_count += 1
+
+        # Publish empty onroadEvents so card.py can initialize
+        # card waits for onroadEvents without selfdriveInitializing event
+        if loop_count % 100 == 1:  # Publish at 1Hz
+          events_msg = messaging.new_message('onroadEvents', 0)
+          events_msg.valid = True
+          pm.send('onroadEvents', events_msg)
+          if loop_count == 1:
+            print("joystickd: Published empty onroadEvents for card initialization")
 
         if loop_count % print_loop == 0:  # Print every 5 seconds at 100Hz
           print(f"joystickd: Loop {loop_count}, alive: carState={sm.alive['carState']}, testJoystick={sm.alive['testJoystick']}")
@@ -120,7 +129,8 @@ def joystickd_thread():
             print(f"  - Checking button type: {button.type}, pressed: {button.pressed}")
             if button.type in [car.CarState.ButtonEvent.Type.setCruise,
                              car.CarState.ButtonEvent.Type.resumeCruise,
-                             car.CarState.ButtonEvent.Type.mainCruise] and button.pressed:
+                             car.CarState.ButtonEvent.Type.mainCruise,
+                             car.CarState.ButtonEvent.Type.accelCruise] and button.pressed:
               user_disabled = False
               system_enabled = True
               print(f"joystickd: CRUISE BUTTON pressed - System re-enabled!")
@@ -132,13 +142,19 @@ def joystickd_thread():
 
         # Set control states
         CC.enabled = system_enabled and not CS.steerFaultPermanent
-        CC.latActive = CC.enabled and not CS.steerFaultTemporary and not CS.steeringPressed
-        CC.longActive = CC.enabled and CP.openpilotLongitudinalControl and False # Disable longitudinal control for safety for now
-        CC.cruiseControl.cancel = False  # Don't interfere with cruise control
+        # For joystick mode, ignore steeringPressed (manual override) to allow blended control
+        CC.latActive = CC.enabled and not CS.steerFaultTemporary  # Removed "and not CS.steeringPressed"
+        CC.longActive = CC.enabled and CP.openpilotLongitudinalControl # Disable longitudinal control for safety for now
+        CC.cruiseControl.cancel = False  # Don't cancel cruise
+        CC.cruiseControl.override = False  # Not overriding cruise
         CC.hudControl.leadDistanceBars = 2
+        CC.hudControl.setSpeed = 55 * (1.609 if not CS.cruiseState.available else 1)  # 55 mph or kph, adjust based on your preference
+        CC.hudControl.leadVisible = False
+
 
         if loop_count % print_loop == 0 and joystick_active:
           print(f"joystickd: enabled={CC.enabled}, latActive={CC.latActive}, longActive={CC.longActive}")
+          print(f"joystickd: CP.openpilotLongitudinalControl={CP.openpilotLongitudinalControl}")
 
         actuators = CC.actuators
 
@@ -157,23 +173,21 @@ def joystickd_thread():
           actuators.longControlState = LongCtrlState.pid if sm['carState'].vEgo > 0.1 else LongCtrlState.stopping
 
           if loop_count % print_loop == 0:
-            print(f"joystickd: Long control - accel: {actuators.accel:.3f}, state: {actuators.longControlState}")
+            print(f"joystickd: Long control - accel: {actuators.accel:.3f}, state: {actuators.longControlState}, vEgo: {sm['carState'].vEgo:.2f}")
+        else:
+          if loop_count % print_loop == 0 and joystick_active:
+            print(f"joystickd: Long control DISABLED - CP.openpilotLongitudinalControl={CP.openpilotLongitudinalControl}, enabled={CC.enabled}")
 
         if CC.latActive:
           try:
             actuators.torque = float(np.clip(joystick_axes[1], -1, 1))
-            if actuators.torque < -0.2:
-              CC.leftBlinker = True
-              CC.rightBlinker = False
-            elif actuators.torque > 0.2:
-              CC.rightBlinker = True
-              CC.leftBlinker = False
-            else:
-              CC.leftBlinker = False
-              CC.rightBlinker = False
+
+            # Note: Blinkers not supported on Kia Niro EV (no ENABLE_BLINKERS flag)
+            # Use physical blinker stalk instead
 
             if loop_count % print_loop == 0:
-              print(f"joystickd: Lat control - torque: {actuators.torque:.3f}, angle: {actuators.steeringAngleDeg:.1f}")
+              direction = "LEFT" if actuators.torque < -0.2 else ("RIGHT" if actuators.torque > 0.2 else "CENTER")
+              print(f"joystickd: Lat control - torque: {actuators.torque:.3f} ({direction}), angle: {actuators.steeringAngleDeg:.1f}")
           except Exception as e:
             print(f"joystickd: ERROR in lateral control: {e}")
 
