@@ -23,5 +23,12 @@
     "system/**",
     "third_party/**",
     "tools/**",
-  ]
+  ],
+  "files.associations": {
+    ".als.json": "jsonc",
+    "*.embeddedhtml": "html",
+    "*.j2": "django-html",
+    "safety_declarations.h": "c",
+    "random": "cpp"
+  }
 }
