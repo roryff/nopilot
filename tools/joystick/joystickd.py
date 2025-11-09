@@ -144,9 +144,15 @@ def joystickd_thread():
         CC.enabled = system_enabled and not CS.steerFaultPermanent
         # For joystick mode, ignore steeringPressed (manual override) to allow blended control
         CC.latActive = CC.enabled and not CS.steerFaultTemporary  # Removed "and not CS.steeringPressed"
-        CC.longActive = CC.enabled and CP.openpilotLongitudinalControl # Disable longitudinal control for safety for now
-        CC.cruiseControl.cancel = False  # Don't cancel cruise
-        CC.cruiseControl.override = False  # Not overriding cruise
+        CC.longActive = CC.enabled and CP.openpilotLongitudinalControl
+
+        # Cruise control messages - cancel stock cruise if it's enabled
+        # Since we have openpilotLongitudinalControl=True and pcmCruise=False,
+        # we want to cancel any stock cruise that might be active
+        CC.cruiseControl.cancel = CS.cruiseState.enabled and not CC.enabled
+        CC.cruiseControl.override = False  # Not using stock SCC override
+        CC.cruiseControl.resume = False    # Not using stock cruise resume
+
         CC.hudControl.leadDistanceBars = 2
         CC.hudControl.setSpeed = 55 * (1.609 if not CS.cruiseState.available else 1)  # 55 mph or kph, adjust based on your preference
         CC.hudControl.leadVisible = False
@@ -235,7 +241,7 @@ def joystickd_thread():
 
         selfdriveState.enabled = CC.enabled
         selfdriveState.active = CC.latActive or CC.longActive
-        selfdriveState.engageable = joystick_active and not CS.steerFaultPermanent
+        selfdriveState.engageable = CC.enabled and not CS.steerFaultPermanent
         selfdriveState.experimentalMode = False
 
         pm.send('selfdriveState', ss_msg)
