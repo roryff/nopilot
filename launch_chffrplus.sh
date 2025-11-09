@@ -79,6 +79,9 @@ function launch {
 
   # Enable joystick debug mode
   python3 -c "from openpilot.common.params import Params; Params().put_bool('JoystickDebugMode', True)"
+  python3 -c "from openpilot.common.params import Params; Params().put_bool('AlphaLongitudinalEnabled', True)"
+    python3 -c "from openpilot.common.params import Params; Params().put_bool('ExperimentalMode', False)"
+
 
   # start manager
   cd system/manager
