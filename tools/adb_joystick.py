@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """
 ADB Joystick Bridge - Physical joystick to comma device via ADB
-Reads from a physical joystick on PC and sends to comma device via ADB
-Works like joystick_udp.py but uses ADB instead of local messaging
+Reads PS4 controller input via evdev and sends to comma device via ADB
+Based on working PS4 controller evdev implementation
 """
 import socket
 import json
 import time
 import sys
+import os
+import argparse
 import numpy as np
-from inputs import UnpluggedError, get_gamepad
+from evdev import InputDevice, categorize, ecodes, list_devices
 
 EXPO = 0.4
 
@@ -124,55 +126,123 @@ class ADBJoystickClient:
                 pass
 
 
+def normalize_value(value, min_val, max_val, output_min=-1, output_max=1):
+    """Normalize a value from input range to output range"""
+    return output_min + (value - min_val) * (output_max - output_min) / (max_val - min_val)
+
+
+def list_input_devices():
+    """List all available input devices"""
+    devices = [InputDevice(path) for path in list_devices()]
+
+    if not devices:
+        print("No input devices found.")
+        print("Make sure you have permission to access /dev/input/")
+        return
+
+    print("Available input devices:")
+    print("=" * 80)
+    for device in devices:
+        print(f"Path:    {device.path}")
+        print(f"Name:    {device.name}")
+        print(f"Phys:    {device.phys}")
+        print(f"Vendor:  {device.info.vendor:04x}")
+        print(f"Product: {device.info.product:04x}")
+        print("-" * 80)
+
+
 class Joystick:
-    def __init__(self):
-        # This class supports a PlayStation 5 DualSense controller
-        # Detects PC vs comma device and adjusts mapping
-        self.cancel_button = 'BTN_NORTH'  # BTN_NORTH=X/triangle
+    def __init__(self, device_path):
+        """Initialize joystick using evdev"""
+        try:
+            self.gamepad = InputDevice(device_path)
+            print(f"Connected to: {self.gamepad.name}")
+        except FileNotFoundError:
+            print(f"Device not found: {device_path}")
+            print("Use --list-devices to see available devices")
+            sys.exit(1)
+        except PermissionError:
+            print(f"Permission denied accessing {device_path}")
+            print("Try running with sudo or add your user to the 'input' group:")
+            print("  sudo usermod -a -G input $USER")
+            print("Then log out and back in.")
+            sys.exit(1)
 
-        # Check if running on PC
+        # PS4 controller axis codes
+        self.AXIS_LEFT_X = ecodes.ABS_X        # Left stick X-axis (steering)
+        self.AXIS_LEFT_TRIGGER = ecodes.ABS_Z   # Left trigger (L2) - brake
+        self.AXIS_RIGHT_TRIGGER = ecodes.ABS_RZ # Right trigger (R2) - gas
 
+        # Alternative trigger codes for different controllers
+        self.ALT_LEFT_TRIGGER = ecodes.ABS_BRAKE
+        self.ALT_RIGHT_TRIGGER = ecodes.ABS_GAS
 
+        # Button codes
+        self.BTN_TRIANGLE = 307  # Triangle button for cancel (BTN_NORTH)
 
-        accel_axis = 'ABS_Z'
-        steer_axis = 'ABS_RX'
-        self.flip_map = {'ABS_RZ': accel_axis}
-
-
-        self.min_axis_value = {accel_axis: 0., steer_axis: 0.}
-        self.max_axis_value = {accel_axis: 255., steer_axis: 255.}
-        self.axes_values = {accel_axis: 0., steer_axis: 0.}
-        self.axes_order = [accel_axis, steer_axis]
+        # Current values
+        self.steer = 0.0
+        self.left_trigger = 0.0  # brake
+        self.right_trigger = 0.0  # gas
         self.cancel = False
 
-    def update(self):
+        # For axes_values compatibility with send_loop
+        self.axes_values = {'gb': 0.0, 'steer': 0.0}
+        self.axes_order = ['gb', 'steer']
+
+    def apply_expo(self, value):
+        """Apply exponential curve for fine control"""
+        return EXPO * value ** 3 + (1 - EXPO) * value
+
+    def read_events(self):
+        """Read and process controller events (non-blocking)"""
         try:
-            joystick_event = get_gamepad()[0]
-        except (OSError, UnpluggedError):
-            self.axes_values = dict.fromkeys(self.axes_values, 0.)
+            # Read all available events without blocking
+            for event in self.gamepad.read():
+                if event.type == ecodes.EV_ABS:  # Absolute axis events
+
+                    # Left stick X-axis (steering)
+                    if event.code == self.AXIS_LEFT_X:
+                        # Normalize to -1 to 1 range (inverted so right = positive)
+                        raw_steer = normalize_value(event.value, 0, 255, 1, -1)
+                        # Apply deadzone
+                        if abs(raw_steer) < 0.03:
+                            raw_steer = 0.0
+                        # Apply expo curve for fine control
+                        self.steer = self.apply_expo(raw_steer)
+
+                    # Left trigger (brake - negative acceleration)
+                    elif event.code in [self.AXIS_LEFT_TRIGGER, self.ALT_LEFT_TRIGGER]:
+                        self.left_trigger = normalize_value(event.value, 0, 255, 0, 1)
+
+                    # Right trigger (gas - positive acceleration)
+                    elif event.code in [self.AXIS_RIGHT_TRIGGER, self.ALT_RIGHT_TRIGGER]:
+                        self.right_trigger = normalize_value(event.value, 0, 255, 0, 1)
+
+                elif event.type == ecodes.EV_KEY:  # Button events
+                    if event.code == self.BTN_TRIANGLE:
+                        self.cancel = (event.value == 1)  # 1 = pressed, 0 = released
+
+            # Calculate combined gas/brake value
+            # Right trigger = positive (gas), left trigger = negative (brake)
+            gb = self.right_trigger - self.left_trigger
+
+            # Update axes_values for compatibility
+            self.axes_values['gb'] = gb
+            self.axes_values['steer'] = self.steer
+
+            return True
+
+        except BlockingIOError:
+            # No events available, that's fine
+            return True
+        except OSError as e:
+            print(f"\nController error: {e}")
             return False
 
-        event = (joystick_event.code, joystick_event.state)
-
-        # flip left trigger to negative accel
-        if event[0] in self.flip_map:
-            event = (self.flip_map[event[0]], -event[1])
-
-        if event[0] == self.cancel_button:
-            if event[1] == 1:
-                self.cancel = True
-            elif event[1] == 0:   # state 0 is falling edge
-                self.cancel = False
-        elif event[0] in self.axes_values:
-            self.max_axis_value[event[0]] = max(event[1], self.max_axis_value[event[0]])
-            self.min_axis_value[event[0]] = min(event[1], self.min_axis_value[event[0]])
-
-            norm = -float(np.interp(event[1], [self.min_axis_value[event[0]], self.max_axis_value[event[0]]], [-1., 1.]))
-            norm = norm if abs(norm) > 0.03 else 0.  # center can be noisy, deadzone of 3%
-            self.axes_values[event[0]] = EXPO * norm ** 3 + (1 - EXPO) * norm  # less action near center for fine control
-        else:
-            return False
-        return True
+    def update(self):
+        """Update joystick state - called by send_loop"""
+        return self.read_events()
 
 
 class Keyboard:
@@ -261,7 +331,6 @@ def send_loop(joystick, client):
 
 
 def main():
-    import argparse
     parser = argparse.ArgumentParser(
         description='Forward physical joystick to comma device via ADB',
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -276,13 +345,27 @@ Requirements:
   - Server running on comma: python3 tools/adb_bridge_server.py
   - Physical joystick connected to PC
 
-Gamepad mapping:
-  - Right stick horizontal: Steering
+Gamepad mapping (PS4 controller):
+  - Left stick X-axis: Steering
   - Right trigger (R2): Gas/acceleration
   - Left trigger (L2): Brake (negative acceleration)
-  - Triangle/Y button: Cancel
+  - Triangle button: Cancel
+
+Examples:
+  # List all available input devices
+  %(prog)s --list-devices
+
+  # Use specific device
+  %(prog)s --device /dev/input/event8
+
+  # Use keyboard instead
+  %(prog)s --keyboard
         """
     )
+    parser.add_argument('--list-devices', action='store_true',
+                       help='List all available input devices and exit')
+    parser.add_argument('--device', '-d', metavar='DEVICE',
+                       help='Path to input device (e.g., /dev/input/event8)')
     parser.add_argument('--keyboard', action='store_true',
                        help='Use keyboard instead of gamepad (W/S=gas/brake, A/D=steer)')
     parser.add_argument('--no-adb', action='store_true',
@@ -291,15 +374,17 @@ Gamepad mapping:
                        help='Port to connect to (default: 5555)')
     args = parser.parse_args()
 
-    # Check for inputs library
-    if not args.keyboard:
-        try:
-            import inputs
-        except ImportError:
-            print("ERROR: 'inputs' library not found!")
-            print("\nInstall with: pip install inputs")
-            print("Or use keyboard mode: --keyboard")
-            sys.exit(1)
+    # Handle list devices mode
+    if args.list_devices:
+        list_input_devices()
+        return
+
+    # Check for evdev library
+    if not args.keyboard and not args.device:
+        print("ERROR: You must specify either --device or --keyboard")
+        print("\nUse --list-devices to see available input devices")
+        print("Or use --keyboard for keyboard control")
+        sys.exit(1)
 
     # Create client
     print("="*60)
@@ -340,12 +425,18 @@ Gamepad mapping:
         joystick = Keyboard()
     else:
         print('Using physical gamepad:')
-        print('  Right stick horizontal: Steering')
+        print('  Left stick X-axis: Steering')
         print('  Right trigger (R2): Gas')
         print('  Left trigger (L2): Brake')
-        print('  Triangle/Y: Cancel')
-        print('\nMake sure your gamepad is connected!')
-        joystick = Joystick()
+        print('  Triangle button: Cancel')
+        print()
+        joystick = Joystick(args.device)
+
+        # Set device to non-blocking mode
+        import fcntl
+        fd = joystick.gamepad.fd
+        flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+        fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
 
     # Import Ratekeeper
     try:
@@ -360,6 +451,8 @@ Gamepad mapping:
         send_loop(joystick, client)
     finally:
         client.close()
+        if hasattr(joystick, 'gamepad'):
+            joystick.gamepad.close()
         print("Disconnected")
 
 
