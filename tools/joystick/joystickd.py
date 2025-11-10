@@ -175,8 +175,17 @@ def joystickd_thread():
         if CC.longActive:
           # Simple acceleration control: joystick forward/back controls acceleration
           actuators.accel = 4.0 * float(np.clip(joystick_axes[0], -1, 1))
-          # Use PID control when moving, stopping control when stationary
-          actuators.longControlState = LongCtrlState.pid if sm['carState'].vEgo > 0.1 else LongCtrlState.stopping
+
+          # Control state logic:
+          # - Use PID when moving
+          # - Use stopping when stationary AND not requesting acceleration
+          # - Switch back to PID if user requests acceleration (even when stopped)
+          if sm['carState'].vEgo > 0.1:
+            actuators.longControlState = LongCtrlState.pid
+          elif actuators.accel > 0.1:  # User wants to accelerate
+            actuators.longControlState = LongCtrlState.pid
+          else:
+            actuators.longControlState = LongCtrlState.stopping
 
           if loop_count % print_loop == 0:
             print(f"joystickd: Long control - accel: {actuators.accel:.3f}, state: {actuators.longControlState}, vEgo: {sm['carState'].vEgo:.2f}")
