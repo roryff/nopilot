@@ -123,13 +123,21 @@ def main():
     parser = argparse.ArgumentParser(description='ADB Bridge Server - Joystick Bridge')
     parser.add_argument('--port', type=int, default=5555, help='TCP port to listen on')
     parser.add_argument('--host', type=str, default='127.0.0.1', help='Host to bind to')
-    args = parser.parse_args()
+
+    # Parse args, but don't fail if running as a module without args
+    try:
+        args = parser.parse_args()
+    except SystemExit:
+        # If argparse fails (e.g., running as module), use defaults
+        class DefaultArgs:
+            port = 5555
+            host = '127.0.0.1'
+        args = DefaultArgs()
 
     # Initialize message publisher
     pm = messaging.PubMaster(['testJoystick'])
 
     # Enable joystick debug mode
-    Params().put_bool('JoystickDebugMode', True)
 
     # Start watchdog thread
     watchdog = threading.Thread(target=watchdog_thread, daemon=True)
