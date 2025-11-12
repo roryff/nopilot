@@ -89,6 +89,7 @@ procs = [
   #PythonProcess("torqued", "selfdrive.locationd.torqued", only_onroad),  # Not needed for joystick
   #PythonProcess("controlsd", "selfdrive.controls.controlsd", and_(not_joystick, iscar)),
   PythonProcess("joystickd", "tools.joystick.joystickd", or_(joystick, notcar)),
+  PythonProcess("loggerd", "tools.joystick.loggerd", always_run),
   #PythonProcess("selfdrived", "selfdrive.selfdrived.selfdrived", only_onroad),  # Disabled for pure joystick mode
   PythonProcess("card", "selfdrive.car.card", only_onroad),
   PythonProcess("deleter", "system.loggerd.deleter", always_run),
