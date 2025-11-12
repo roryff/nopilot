@@ -48,11 +48,13 @@ def handle_client_socket(client_sock, client_addr):
                 if cmd_type == 'joystick':
                     # Joystick command - publish to testJoystick
                     axes = cmd.get('axes', [0.0, 0.0])
+                    logging_enabled = cmd.get('loggingEnabled', False)
 
                     # Create and send testJoystick message
                     joystick_msg = messaging.new_message('testJoystick')
                     joystick_msg.valid = True
                     joystick_msg.testJoystick.axes = axes
+                    joystick_msg.testJoystick.loggingEnabled = logging_enabled
                     pm.send('testJoystick', joystick_msg)
 
                     last_joy_time = recv_time
@@ -61,7 +63,8 @@ def handle_client_socket(client_sock, client_addr):
                     global msg_count
                     msg_count = globals().get('msg_count', 0) + 1
                     if msg_count % 20 == 0:
-                        print(f'\rJoystick: gb={axes[0]:+.3f}, steer={axes[1]:+.3f}', end='', flush=True)
+                        log_status = "[LOG]" if logging_enabled else ""
+                        print(f'\rJoystick: gb={axes[0]:+.3f}, steer={axes[1]:+.3f} {log_status}', end='', flush=True)
 
                     # No ack needed for joystick - running at 100Hz
 
@@ -114,6 +117,7 @@ def watchdog_thread():
             joystick_msg = messaging.new_message('testJoystick')
             joystick_msg.valid = True
             joystick_msg.testJoystick.axes = [0.0, 0.0]
+            joystick_msg.testJoystick.loggingEnabled = False
             pm.send('testJoystick', joystick_msg)
             last_joy_time = 0  # Reset to avoid spamming
 

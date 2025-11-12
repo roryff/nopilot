@@ -56,16 +56,18 @@ class ADBJoystickClient:
         self.sock.connect((self.host, self.port))
         print("Connected!")
 
-    def send_joystick(self, axes):
+    def send_joystick(self, axes, logging_enabled=False):
         """
         Send joystick axes to the server
 
         Args:
             axes: List of two floats [longitudinal, lateral] (gb, steer)
+            logging_enabled: Boolean to enable/disable logging on device
         """
         cmd = {
             'type': 'joystick',
             'axes': axes,
+            'loggingEnabled': logging_enabled,
             'time': time.time(),
             'seq': self.seq
         }
@@ -179,12 +181,18 @@ class Joystick:
 
         # Button codes
         self.BTN_TRIANGLE = 307  # Triangle button for cancel (BTN_NORTH)
+        self.BTN_X = 304          # X button for logging toggle (BTN_SOUTH)
+        self.BTN_L1 = 310         # L1 button - left blinker
+        self.BTN_R1 = 311         # R1 button - right blinker
 
         # Current values
         self.steer = 0.0
         self.left_trigger = 0.0  # brake
         self.right_trigger = 0.0  # gas
         self.cancel = False
+        self.logging_enabled = False  # Toggle logging
+        self.left_blinker = False
+        self.right_blinker = False
 
         # For axes_values compatibility with send_loop
         self.axes_values = {'gb': 0.0, 'steer': 0.0}
@@ -222,6 +230,15 @@ class Joystick:
                 elif event.type == ecodes.EV_KEY:  # Button events
                     if event.code == self.BTN_TRIANGLE:
                         self.cancel = (event.value == 1)  # 1 = pressed, 0 = released
+                    elif event.code == self.BTN_X:
+                        if event.value == 1:  # Button pressed (not released)
+                            self.logging_enabled = not self.logging_enabled
+                            status = "ENABLED" if self.logging_enabled else "DISABLED"
+                            print(f"\n*** LOGGING {status} ***")
+                    elif event.code == self.BTN_L1:
+                        self.left_blinker = (event.value == 1)
+                    elif event.code == self.BTN_R1:
+                        self.right_blinker = (event.value == 1)
 
             # Calculate combined gas/brake value
             # Right trigger = positive (gas), left trigger = negative (brake)
@@ -301,9 +318,12 @@ def send_loop(joystick, client):
             # Get axes values in order [gb, steer] or [accel_axis, steer_axis]
             axes = [joystick.axes_values[ax] for ax in joystick.axes_order]
 
+            # Get logging state if available (gamepad only)
+            logging_enabled = getattr(joystick, 'logging_enabled', False)
+
             # Send to comma device
             try:
-                client.send_joystick(axes)
+                client.send_joystick(axes, logging_enabled)
             except Exception as e:
                 print(f"\nConnection error: {e}")
                 print("Server may have stopped. Reconnecting...")
@@ -350,6 +370,9 @@ Gamepad mapping (PS4 controller):
   - Right trigger (R2): Gas/acceleration
   - Left trigger (L2): Brake (negative acceleration)
   - Triangle button: Cancel
+  - X button: Toggle data logging (creates huge CSV file)
+  - L1 button: Left blinker (if supported)
+  - R1 button: Right blinker (if supported)
 
 Examples:
   # List all available input devices
@@ -429,6 +452,8 @@ Examples:
         print('  Right trigger (R2): Gas')
         print('  Left trigger (L2): Brake')
         print('  Triangle button: Cancel')
+        print('  X button: Toggle logging')
+        print('  L1/R1: Blinkers (if supported)')
         print()
         joystick = Joystick(args.device)
 

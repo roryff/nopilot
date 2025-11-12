@@ -2141,6 +2141,7 @@ struct Joystick {
   # convenient for debug and live tuning
   axes @0: List(Float32);
   buttons @1: List(Bool);
+  loggingEnabled @2: Bool;
 }
 
 struct DriverStateV2 {
