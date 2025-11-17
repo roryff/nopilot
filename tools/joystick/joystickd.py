@@ -9,7 +9,9 @@ from opendbc.car.vehicle_model import VehicleModel
 from openpilot.common.realtime import DT_CTRL, Ratekeeper
 from openpilot.common.params import Params
 from openpilot.common.swaglog import cloudlog
+
 LongCtrlState = car.CarControl.Actuators.LongControlState
+
 MAX_LAT_ACCEL = 3.0
 print_loop=1000
 
@@ -18,10 +20,7 @@ def joystickd_thread():
   print("joystickd: Starting up...")
 
   try:
-    if os.environ.get("SKIP_FW_QUERY"):
-        params_source="CarParamsPersistent"
-    else:
-        params_source="CarParams"
+    params_source = "CarParamsPersistent" if os.environ.get("SKIP_FW_QUERY") else "CarParams"
     print("joystickd: Waiting for Carparams")
     CP = messaging.log_from_bytes(params.get(params_source, block=True), car.CarParams)
     print(f"joystickd: Got CarParams for {CP.carFingerprint}")
@@ -35,12 +34,14 @@ def joystickd_thread():
 
     loop_count = 0
     CS_prev = None
-    last_joystick_update = 0  # Track when we last saw joystick data
-    JOYSTICK_TIMEOUT = 5  # Consider joystick dead after 5 loops without update
 
-    # Control state variables
-    system_enabled = False  # Overall system enable state
-    user_disabled = False   # Set True when user overrides (brake/gas/steering)
+    last_joystick_update = 0
+    JOYSTICK_TIMEOUT = 5
+
+    system_enabled = False
+    user_disabled = False
+    joystick_active = False
+    graceful_stop_debounce = -1
 
     while True:
       try:
@@ -48,65 +49,86 @@ def joystickd_thread():
         loop_count += 1
 
         # Publish empty onroadEvents so card.py can initialize
-        # card waits for onroadEvents without selfdriveInitializing event
+
+        # ---------------------------------------------------------------------
+        # Periodic logging & onroadEvents publishing
+        # ---------------------------------------------------------------------
         if loop_count % 100 == 1:  # Publish at 1Hz
           events_msg = messaging.new_message('onroadEvents', 0)
           events_msg.valid = True
           pm.send('onroadEvents', events_msg)
-          if loop_count == 1:
-            print("joystickd: Published empty onroadEvents for card initialization")
 
         if loop_count % print_loop == 0:  # Print every 5 seconds at 100Hz
           print(f"joystickd: Loop {loop_count}, alive: carState={sm.alive['carState']}, testJoystick={sm.alive['testJoystick']}")
           print(f"joystickd: Valid: carState={sm.valid['carState']}, testJoystick={sm.valid['testJoystick']}")
           print(f"joystickd: Updated: carState={sm.updated['carState']}, testJoystick={sm.updated['testJoystick']}")
           print(f"joystickd: Joystick: last_update={last_joystick_update}, loops_ago={loop_count - last_joystick_update}, active={joystick_active}")
-          print(f"joystickd: State: system_enabled={system_enabled}, user_disabled={user_disabled}, CC.enabled={CC.enabled}")
 
+        # ---------------------------------------------------------------------
+        # CarControl message
+        # ---------------------------------------------------------------------
         cc_msg = messaging.new_message('carControl')
         cc_msg.valid = True
         CC = cc_msg.carControl
 
-        # Track joystick updates - if we see fresh data, update timestamp
+        # ---------------------------------------------------------------------
+        # Joystick activity detection
+        # ---------------------------------------------------------------------
         if sm.updated["testJoystick"] and sm.valid["testJoystick"]:
           last_joystick_update = loop_count
-
         # Joystick is active if we've seen data within the last 5 loops (50ms at 100Hz)
+        prev_joy = joystick_active
         joystick_active = (loop_count - last_joystick_update) <= JOYSTICK_TIMEOUT
 
-        # Always publish selfdriveState so UI knows we're alive
-        # Publish selfdriveState for UI visibility
-        ss_msg = messaging.new_message('selfdriveState')
-        ss_msg.valid = True
-        selfdriveState = ss_msg.selfdriveState
+        # Joystick lost → start countdown
+        if prev_joy and not joystick_active:
+          # Joystick just lost - start 2 second countdown (200 loops at 100Hz)
+          graceful_stop_debounce = 200
+          print("joystickd: JOYSTICK LOST - Starting 2 second graceful stop countdown")
 
-        # Set proper state based on our control logic
+        #joystick reconnected → clear countdown
+        elif joystick_active and not prev_joy:
+          # Joystick reconnected - clear countdown and allow normal operation
+          graceful_stop_debounce = -1
+          print("joystickd: JOYSTICK RECONNECTED - Resuming normal operation")
+        #countdown active → decrement
+        elif not joystick_active and graceful_stop_debounce > 0:
+          graceful_stop_debounce -= 1
+
+
+        # ---------------------------------------------------------------------
+        # SelfdriveState early handling if no car data
+        # ---------------------------------------------------------------------
         if not sm.alive["carState"] or not sm.valid["carState"]:
-          selfdriveState.state = log.SelfdriveState.OpenpilotState.disabled
-          selfdriveState.alertText1 = "No Car Data"
-          selfdriveState.alertText2 = "Waiting for car connection"
-          selfdriveState.alertStatus = log.SelfdriveState.AlertStatus.normal
-          selfdriveState.alertSize = log.SelfdriveState.AlertSize.small
-          selfdriveState.enabled = False
-          selfdriveState.active = False
-          selfdriveState.engageable = False
-          selfdriveState.experimentalMode = False
-          pm.send('selfdriveState', ss_msg)
+          ss = messaging.new_message('selfdriveState')
+          ss.valid = True
+          sd = ss.selfdriveState
+
+          sd.state = log.SelfdriveState.OpenpilotState.disabled
+          sd.alertText1 = "No Car Data"
+          sd.alertText2 = "Waiting for car connection"
+          sd.alertStatus = log.SelfdriveState.AlertStatus.normal
+          sd.alertSize = log.SelfdriveState.AlertSize.small
+          sd.enabled = False
+          sd.active = False
+          sd.engageable = False
+          sd.experimentalMode = False
+
+          pm.send('selfdriveState', ss)
           rk.keep_time()
           continue
 
+
         CS = sm['carState']
 
-        # Check for user overrides to disable system
+
+        # ---------------------------------------------------------------------
+        # User override detection (brake, gas, steering)
+        # ---------------------------------------------------------------------
         if CS_prev is not None:
-          # Brake override: disable on brake press (or if braking while moving)
           brake_override = CS.brakePressed and (not CS_prev.brakePressed or not CS.standstill)
-
-          # Gas override: disable on gas press
           gas_override = CS.gasPressed and not CS_prev.gasPressed
-
-          # Steering override: soft disable on steering input
-          steer_override = CS.steeringPressed
+          steer_override = CS.steeringPressed  # Not used for disable for now, but still tracked
 
           # Disable system on any override
           if brake_override or gas_override:
@@ -116,11 +138,6 @@ def joystickd_thread():
               override_type = "BRAKE" if brake_override else "GAS"
               print(f"joystickd: {override_type} OVERRIDE - System disabled! Press cruise button to re-enable.")
 
-        # Debug: Print all button events
-        if len(CS.buttonEvents) > 0:
-          print(f"joystickd: Button events detected: {len(CS.buttonEvents)} buttons")
-          for button in CS.buttonEvents:
-            print(f"  - Button type: {button.type}, pressed: {button.pressed}")
 
         # Check for cruise control button to re-enable
         if user_disabled and len(CS.buttonEvents) > 0:
@@ -140,21 +157,19 @@ def joystickd_thread():
         if not user_disabled:
           system_enabled = joystick_active
 
-        # Set control states
+        # ---------------------------------------------------------------------
+        # Control mode flags
+        # ---------------------------------------------------------------------
         CC.enabled = system_enabled and not CS.steerFaultPermanent
-        # For joystick mode, ignore steeringPressed (manual override) to allow blended control
-        CC.latActive = CC.enabled and not CS.steerFaultTemporary  # Removed "and not CS.steeringPressed"
+        CC.latActive = CC.enabled and not CS.steerFaultTemporary
         CC.longActive = CC.enabled and CP.openpilotLongitudinalControl
 
-        # Cruise control messages - cancel stock cruise if it's enabled
-        # Since we have openpilotLongitudinalControl=True and pcmCruise=False,
-        # we want to cancel any stock cruise that might be active
         CC.cruiseControl.cancel = CS.cruiseState.enabled and not CC.enabled
         CC.cruiseControl.override = False  # Not using stock SCC override
         CC.cruiseControl.resume = False    # Not using stock cruise resume
 
         CC.hudControl.leadDistanceBars = 2
-        CC.hudControl.setSpeed = 55 * (1.609 if not CS.cruiseState.available else 1)  # 55 mph or kph, adjust based on your preference
+        CC.hudControl.setSpeed = 55 * (1.609 if not CS.cruiseState.available else 1)
         CC.hudControl.leadVisible = False
 
 
@@ -162,7 +177,9 @@ def joystickd_thread():
           print(f"joystickd: enabled={CC.enabled}, latActive={CC.latActive}, longActive={CC.longActive}")
           print(f"joystickd: CP.openpilotLongitudinalControl={CP.openpilotLongitudinalControl}")
 
-        actuators = CC.actuators
+        # ---------------------------------------------------------------------
+        # Joystick input
+        # ---------------------------------------------------------------------
 
         # Get joystick input or default to neutral
         if joystick_active and sm.updated['testJoystick']:
@@ -172,14 +189,14 @@ def joystickd_thread():
         else:
           joystick_axes = [0.0, 0.0]
 
+
+        actuators = CC.actuators
+        # ---------------------------------------------------------------------
+        # Longitudinal control
+        # ---------------------------------------------------------------------
         if CC.longActive:
-          # Simple acceleration control: joystick forward/back controls acceleration
           actuators.accel = 4.0 * float(np.clip(joystick_axes[0], -1, 1))
 
-          # Control state logic:
-          # - Use PID when moving
-          # - Use stopping when stationary AND not requesting acceleration
-          # - Switch back to PID if user requests acceleration (even when stopped)
           if sm['carState'].vEgo > 0.1:
             actuators.longControlState = LongCtrlState.pid
           elif actuators.accel > 0.1:  # User wants to accelerate
@@ -190,16 +207,25 @@ def joystickd_thread():
           if loop_count % print_loop == 0:
             print(f"joystickd: Long control - accel: {actuators.accel:.3f}, state: {actuators.longControlState}, vEgo: {sm['carState'].vEgo:.2f}")
         else:
+          if graceful_stop_debounce > 0:
+            actuators.accel = -1.0
+          elif graceful_stop_debounce == 0:
+            actuators.accel = -3.0
+
+          actuators.longControlState = (
+            LongCtrlState.pid if sm['carState'].vEgo > 0.1 else LongCtrlState.stopping
+          )
+
           if loop_count % print_loop == 0 and joystick_active:
             print(f"joystickd: Long control DISABLED - CP.openpilotLongitudinalControl={CP.openpilotLongitudinalControl}, enabled={CC.enabled}")
 
+
+        # ---------------------------------------------------------------------
+        # Lateral control
+        # ---------------------------------------------------------------------
         if CC.latActive:
           try:
             actuators.torque = float(np.clip(joystick_axes[1], -1, 1))
-
-            # Note: Blinkers not supported on Kia Niro EV (no ENABLE_BLINKERS flag)
-            # Use physical blinker stalk instead
-
             if loop_count % print_loop == 0:
               direction = "LEFT" if actuators.torque < -0.2 else ("RIGHT" if actuators.torque > 0.2 else "CENTER")
               print(f"joystickd: Lat control - torque: {actuators.torque:.3f} ({direction}), angle: {actuators.steeringAngleDeg:.1f}")
@@ -208,11 +234,14 @@ def joystickd_thread():
 
         pm.send('carControl', cc_msg)
 
+
+        # ---------------------------------------------------------------------
+        # ControlsState message
+        # ---------------------------------------------------------------------
         cs_msg = messaging.new_message('controlsState')
         cs_msg.valid = True
         controlsState = cs_msg.controlsState
         controlsState.lateralControlState.init('debugState')
-
         try:
           # Simple curvature calculation without live parameter dependencies
           if sm.alive['liveParameters'] and sm.valid['liveParameters']:
@@ -226,10 +255,11 @@ def joystickd_thread():
         except Exception as e:
           print(f"joystickd: ERROR in controlsState: {e}")
           controlsState.curvature = 0.0
-
         pm.send('controlsState', cs_msg)
 
-        # Update selfdriveState with car-dependent logic (carState is available here)
+        # ---------------------------------------------------------------------
+        # SelfdriveState (final status reporting)
+        # ---------------------------------------------------------------------
         ss_msg = messaging.new_message('selfdriveState')
         ss_msg.valid = True
         selfdriveState = ss_msg.selfdriveState
@@ -241,6 +271,12 @@ def joystickd_thread():
           selfdriveState.alertText2 = "Press cruise button to re-enable"
           selfdriveState.alertStatus = log.SelfdriveState.AlertStatus.userPrompt
           selfdriveState.alertSize = log.SelfdriveState.AlertSize.mid
+        elif not joystick_active and graceful_stop_debounce >= 0:
+          selfdriveState.state = log.SelfdriveState.OpenpilotState.disabled
+          selfdriveState.alertText1 = "JOYSTICK LOST - TAKE CONTROL"
+          selfdriveState.alertText2 = f"Stopping in {graceful_stop_debounce / 100:.1f}s"
+          selfdriveState.alertStatus = log.SelfdriveState.AlertStatus.critical
+          selfdriveState.alertSize = log.SelfdriveState.AlertSize.full
         elif not joystick_active:
           selfdriveState.state = log.SelfdriveState.OpenpilotState.disabled
           selfdriveState.alertText1 = "No Joystick"
