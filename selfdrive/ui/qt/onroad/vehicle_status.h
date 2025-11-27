@@ -58,6 +58,7 @@ private:
   QLabel *panda_ignition_label;
   QLabel *panda_controls_allowed_label;
   QLabel *panda_hyundai_long_label;
+  QLabel *logging_enabled_label;
 
   // Data storage
   float actuator_torque = -1.0f;

@@ -46,6 +46,7 @@ VehicleStatusWidget::VehicleStatusWidget(QWidget *parent) : QWidget(parent) {
     panda_ignition_label = new QLabel("Ignition: N/A");
     panda_controls_allowed_label = new QLabel("Controls Allowed: N/A");
     panda_hyundai_long_label = new QLabel("Longitudinal: N/A");
+    logging_enabled_label = new QLabel("Logging: N/A");
 
     setupLayout();
 }
@@ -75,7 +76,7 @@ void VehicleStatusWidget::setupLayout() {
                                       yaw_rate_label, brake_pressed_label, gas_pressed_label };
 
     QList<QLabel*> control_labels = { enabled_label, active_label, engageable_label };
-    QList<QLabel*> panda_labels = { panda_connected_label, panda_ignition_label, panda_controls_allowed_label, panda_hyundai_long_label };
+    QList<QLabel*> panda_labels = { panda_connected_label, panda_ignition_label, panda_controls_allowed_label, panda_hyundai_long_label, logging_enabled_label };
 
     QList<QList<QLabel*>> columns = { actuator_labels, vehicle_labels, control_labels, panda_labels };
     QList<QLabel*> headers = { actuator_header, vehicle_header, control_header, panda_header };
@@ -266,16 +267,26 @@ void VehicleStatusWidget::updatePandaData(const UIState &s) {
         panda_controls_allowed_label->setText(QString("Controls Allowed: %1").arg(panda_controls_allowed ? "YES" : "NO"));
         panda_hyundai_long_label->setText(QString("Longitudinal: %1").arg(openpilot_longitudinal ? "OPENPILOT" : "STOCK"));
 
+        // Check logging enabled state from testJoystick
+        bool logging_enabled = false;
+        if (sm.alive("testJoystick") && sm.valid("testJoystick") && sm.rcv_frame("testJoystick") > 0) {
+          const auto &test_joystick = sm["testJoystick"].getTestJoystick();
+          logging_enabled = test_joystick.getLoggingEnabled();
+        }
+        logging_enabled_label->setText(QString("Logging: %1").arg(logging_enabled ? "ENABLED" : "DISABLED"));
+
         // Update colors based on state
         QString connected_color = "color: lime;";
         QString ignition_color = panda_ignition ? "color: lime;" : "color: orange;";
         QString controls_allowed_color = panda_controls_allowed ? "color: lime;" : "color: red;";
         QString longitudinal_color = openpilot_longitudinal ? "color: cyan;" : "color: yellow;";
+        QString logging_color = logging_enabled ? "color: lime;" : "color: gray;";
 
         panda_connected_label->setStyleSheet(QString("background: rgba(0,0,0,180); padding: 3px; border-radius: 4px; margin: 1px; border: 1px solid rgba(255,255,255,50); %1").arg(connected_color));
         panda_ignition_label->setStyleSheet(QString("background: rgba(0,0,0,180); padding: 3px; border-radius: 4px; margin: 1px; border: 1px solid rgba(255,255,255,50); %1").arg(ignition_color));
         panda_controls_allowed_label->setStyleSheet(QString("background: rgba(0,0,0,180); padding: 3px; border-radius: 4px; margin: 1px; border: 1px solid rgba(255,255,255,50); %1").arg(controls_allowed_color));
         panda_hyundai_long_label->setStyleSheet(QString("background: rgba(0,0,0,180); padding: 3px; border-radius: 4px; margin: 1px; border: 1px solid rgba(255,255,255,50); %1").arg(longitudinal_color));
+        logging_enabled_label->setStyleSheet(QString("background: rgba(0,0,0,180); padding: 3px; border-radius: 4px; margin: 1px; border: 1px solid rgba(255,255,255,50); %1").arg(logging_color));
 
       } else {
         panda_connected = false;
@@ -283,6 +294,7 @@ void VehicleStatusWidget::updatePandaData(const UIState &s) {
         panda_ignition_label->setText("Ignition: N/A");
         panda_controls_allowed_label->setText("Controls Allowed: N/A");
         panda_hyundai_long_label->setText("Longitudinal: N/A");
+        logging_enabled_label->setText("Logging: N/A");
       }
     } else {
       panda_connected = false;
@@ -290,6 +302,7 @@ void VehicleStatusWidget::updatePandaData(const UIState &s) {
       panda_ignition_label->setText("Ignition: N/A");
       panda_controls_allowed_label->setText("Controls Allowed: N/A");
       panda_hyundai_long_label->setText("Longitudinal: N/A");
+      logging_enabled_label->setText("Logging: N/A");
     }
   } catch (const std::exception &e) {
     // Handle any errors gracefully - keep previous values
