@@ -130,6 +130,15 @@ class ComprehensiveLogger:
             'actuators_speed',
             'actuators_longControlState',
 
+            # Car Output (Actual output sent to car after safety restrictions)
+            'carOutput_valid',
+            'carOutput_accel',
+            'carOutput_torque',
+            'carOutput_steeringAngleDeg',
+            'carOutput_curvature',
+            'carOutput_speed',
+            'carOutput_longControlState',
+
             # Car Control Flags
             'enabled',
             'latActive',
@@ -225,6 +234,9 @@ class ComprehensiveLogger:
             lp = sm['liveParameters'] if sm.valid.get('liveParameters', False) else None
             carOutput = sm['carOutput'] if sm.valid.get('carOutput', False) else None
 
+            # Use empty string for missing numeric data so we can distinguish from actual 0
+            MISSING = ''  # Empty string in CSV indicates missing data
+
             # Build comprehensive data row
             row = {
                 # Timestamp
@@ -240,126 +252,106 @@ class ComprehensiveLogger:
                 'joystick_active': system_state.get('joystick_active', False),
 
                 # Joystick Inputs
-                'joy_axis_0_gb': joy.axes[0] if len(joy.axes) > 0 else 0.0,
-                'joy_axis_1_steer': joy.axes[1] if len(joy.axes) > 1 else 0.0,
-                'joy_button_count': len(joy.buttons) if hasattr(joy, 'buttons') else 0,
+                'joy_axis_0_gb': joy.axes[0] if len(joy.axes) > 0 else MISSING,
+                'joy_axis_1_steer': joy.axes[1] if len(joy.axes) > 1 else MISSING,
+                'joy_button_count': len(joy.buttons) if hasattr(joy, 'buttons') else MISSING,
                 'joy_logging_enabled': getattr(joy, 'loggingEnabled', False),
 
                 # Car State - Motion
-                'vEgo': CS.vEgo,
-                'vEgoRaw': CS.vEgoRaw,
-                'aEgo': CS.aEgo,
-                'yawRate': CS.yawRate,
-                'standstill': CS.standstill,
-                'wheelSpeeds_fl': CS.wheelSpeeds.fl,
-                'wheelSpeeds_fr': CS.wheelSpeeds.fr,
-                'wheelSpeeds_rl': CS.wheelSpeeds.rl,
-                'wheelSpeeds_rr': CS.wheelSpeeds.rr,
+                'vEgo': getattr(CS, 'vEgo', MISSING),
+                'vEgoRaw': getattr(CS, 'vEgoRaw', MISSING),
+                'aEgo': getattr(CS, 'aEgo', MISSING),
+                'yawRate': getattr(CS, 'yawRate', MISSING),
+                'standstill': getattr(CS, 'standstill', False),
+                'wheelSpeeds_fl': getattr(CS.wheelSpeeds, 'fl', MISSING) if hasattr(CS, 'wheelSpeeds') else MISSING,
+                'wheelSpeeds_fr': getattr(CS.wheelSpeeds, 'fr', MISSING) if hasattr(CS, 'wheelSpeeds') else MISSING,
+                'wheelSpeeds_rl': getattr(CS.wheelSpeeds, 'rl', MISSING) if hasattr(CS, 'wheelSpeeds') else MISSING,
+                'wheelSpeeds_rr': getattr(CS.wheelSpeeds, 'rr', MISSING) if hasattr(CS, 'wheelSpeeds') else MISSING,
 
                 # Car State - Steering
-                'steeringAngleDeg': CS.steeringAngleDeg,
-                'steeringRateDeg': CS.steeringRateDeg,
-                'steeringTorque': CS.steeringTorque,
-                'steeringTorqueEps': CS.steeringTorqueEps,
-                'steeringPressed': CS.steeringPressed,
-                'steerFaultTemporary': CS.steerFaultTemporary,
-                'steerFaultPermanent': CS.steerFaultPermanent,
-                'steerWarning': CS.steerWarning,
+                'steeringAngleDeg': getattr(CS, 'steeringAngleDeg', MISSING),
+                'steeringRateDeg': getattr(CS, 'steeringRateDeg', MISSING),
+                'steeringTorque': getattr(CS, 'steeringTorque', MISSING),
+                'steeringTorqueEps': getattr(CS, 'steeringTorqueEps', MISSING),
+                'steeringPressed': getattr(CS, 'steeringPressed', MISSING),
+                'steerFaultTemporary': getattr(CS, 'steerFaultTemporary', MISSING),
+                'steerFaultPermanent': getattr(CS, 'steerFaultPermanent', MISSING),
+                'steerWarning': getattr(CS, 'steerWarning', MISSING),  # Field doesn't exist in schema
 
                 # Car State - Pedals
-                'gas': CS.gas,
-                'gasPressed': CS.gasPressed,
-                'brake': CS.brake,
-                'brakePressed': CS.brakePressed,
-                'brakeHoldActive': CS.brakeHoldActive,
-                'parkingBrake': CS.parkingBrake,
+                'gas': getattr(CS, 'gas', MISSING),  # Field doesn't exist in CarState
+                'gasPressed': getattr(CS, 'gasPressed', MISSING),
+                'brake': getattr(CS, 'brake', MISSING),
+                'brakePressed': getattr(CS, 'brakePressed', MISSING),
+                'brakeHoldActive': getattr(CS, 'brakeHoldActive', MISSING),
+                'parkingBrake': getattr(CS, 'parkingBrake', MISSING),
 
                 # Car State - Gear & Cruise
-                'gearShifter': str(CS.gearShifter),
-                'cruiseState_enabled': CS.cruiseState.enabled,
-                'cruiseState_available': CS.cruiseState.available,
-                'cruiseState_speed': CS.cruiseState.speed,
-                'cruiseState_standstill': CS.cruiseState.standstill,
+                'gearShifter': str(getattr(CS, 'gearShifter', 'unknown')),
+                'cruiseState_enabled': getattr(CS.cruiseState, 'enabled', MISSING) if hasattr(CS, 'cruiseState') else MISSING,
+                'cruiseState_available': getattr(CS.cruiseState, 'available', MISSING) if hasattr(CS, 'cruiseState') else MISSING,
+                'cruiseState_speed': getattr(CS.cruiseState, 'speed', MISSING) if hasattr(CS, 'cruiseState') else MISSING,
+                'cruiseState_standstill': getattr(CS.cruiseState, 'standstill', MISSING) if hasattr(CS, 'cruiseState') else MISSING,
 
                 # Car State - Buttons
-                'leftBlinker': CS.leftBlinker,
-                'rightBlinker': CS.rightBlinker,
-                'genericToggle': CS.genericToggle,
-                'doorOpen': CS.doorOpen,
-                'seatbeltUnlatched': CS.seatbeltUnlatched,
-                'espDisabled': CS.espDisabled,
+                'leftBlinker': getattr(CS, 'leftBlinker', MISSING),
+                'rightBlinker': getattr(CS, 'rightBlinker', MISSING),
+                'genericToggle': getattr(CS, 'genericToggle', MISSING),
+                'doorOpen': getattr(CS, 'doorOpen', MISSING),
+                'seatbeltUnlatched': getattr(CS, 'seatbeltUnlatched', MISSING),
+                'espDisabled': getattr(CS, 'espDisabled', MISSING),
 
                 # Car State - Faults
-                'stockAeb': CS.stockAeb,
-                'stockFcw': CS.stockFcw,
+                'stockAeb': getattr(CS, 'stockAeb', False),
+                'stockFcw': getattr(CS, 'stockFcw', False),
                 'espActive': getattr(CS, 'espActive', False),
-                'accFaulted': CS.accFaulted,
+                'accFaulted': getattr(CS, 'accFaulted', False),
 
                 # Live Parameters
                 'liveParameters_valid': sm.valid.get('liveParameters', False) if lp else False,
-                'liveParameters_angleOffsetDeg': lp.angleOffsetDeg if lp else 0.0,
-                'liveParameters_angleOffsetAverageDeg': lp.angleOffsetAverageDeg if lp else 0.0,
-                'liveParameters_stiffnessFactor': lp.stiffnessFactor if lp else 0.0,
-                'liveParameters_steerRatio': lp.steerRatio if lp else 0.0,
-                'liveParameters_roll': lp.roll if lp else 0.0,
+                'liveParameters_angleOffsetDeg': lp.angleOffsetDeg if lp else MISSING,
+                'liveParameters_angleOffsetAverageDeg': lp.angleOffsetAverageDeg if lp else MISSING,
+                'liveParameters_stiffnessFactor': lp.stiffnessFactor if lp else MISSING,
+                'liveParameters_steerRatio': lp.steerRatio if lp else MISSING,
+                'liveParameters_roll': lp.roll if lp else MISSING,
 
                 # Actuator Commands
-                'actuators_accel': CC.actuators.accel,
-                'actuators_torque': CC.actuators.torque,
-                'actuators_steeringAngleDeg': CC.actuators.steeringAngleDeg,
-                'actuators_curvature': CC.actuators.curvature,
-                'actuators_speed': CC.actuators.speed,
-                'actuators_longControlState': str(CC.actuators.longControlState),
+                'actuators_accel': getattr(CC.actuators, 'accel', MISSING) if hasattr(CC, 'actuators') else MISSING,
+                'actuators_torque': getattr(CC.actuators, 'torque', MISSING) if hasattr(CC, 'actuators') else MISSING,
+                'actuators_steeringAngleDeg': getattr(CC.actuators, 'steeringAngleDeg', MISSING) if hasattr(CC, 'actuators') else MISSING,
+                'actuators_curvature': getattr(CC.actuators, 'curvature', MISSING) if hasattr(CC, 'actuators') else MISSING,
+                'actuators_speed': getattr(CC.actuators, 'speed', MISSING) if hasattr(CC, 'actuators') else MISSING,
+                'actuators_longControlState': str(getattr(CC.actuators, 'longControlState', 'off')) if hasattr(CC, 'actuators') else 'off',
 
                 # Car Output (Actual output sent to car after safety restrictions)
                 'carOutput_valid': sm.valid.get('carOutput', False),
-                'carOutput_accel': carOutput.actuatorsOutput.accel if carOutput else 0.0,
-                'carOutput_torque': carOutput.actuatorsOutput.torque if carOutput else 0.0,
-                'carOutput_steeringAngleDeg': carOutput.actuatorsOutput.steeringAngleDeg if carOutput else 0.0,
-                'carOutput_curvature': carOutput.actuatorsOutput.curvature if carOutput else 0.0,
-                'carOutput_speed': carOutput.actuatorsOutput.speed if carOutput else 0.0,
-                'carOutput_longControlState': str(carOutput.actuatorsOutput.longControlState) if carOutput else 'none',
+                'carOutput_accel': getattr(carOutput.actuatorsOutput, 'accel', MISSING) if carOutput and hasattr(carOutput, 'actuatorsOutput') else MISSING,
+                'carOutput_torque': getattr(carOutput.actuatorsOutput, 'torque', MISSING) if carOutput and hasattr(carOutput, 'actuatorsOutput') else MISSING,
+                'carOutput_steeringAngleDeg': getattr(carOutput.actuatorsOutput, 'steeringAngleDeg', MISSING) if carOutput and hasattr(carOutput, 'actuatorsOutput') else MISSING,
+                'carOutput_curvature': getattr(carOutput.actuatorsOutput, 'curvature', MISSING) if carOutput and hasattr(carOutput, 'actuatorsOutput') else MISSING,
+                'carOutput_speed': getattr(carOutput.actuatorsOutput, 'speed', MISSING) if carOutput and hasattr(carOutput, 'actuatorsOutput') else MISSING,
+                'carOutput_longControlState': str(getattr(carOutput.actuatorsOutput, 'longControlState', 'off')) if carOutput and hasattr(carOutput, 'actuatorsOutput') else 'none',
 
                 # Car Control Flags
-                'enabled': CC.enabled,
-                'latActive': CC.latActive,
-                'longActive': CC.longActive,
-                'leftBlinker_cmd': CC.leftBlinker,
-                'rightBlinker_cmd': CC.rightBlinker,
+                'enabled': getattr(CC, 'enabled', MISSING),
+                'latActive': getattr(CC, 'latActive', MISSING),
+                'longActive': getattr(CC, 'longActive', MISSING),
+                'leftBlinker_cmd': getattr(CC, 'leftBlinker', MISSING),
+                'rightBlinker_cmd': getattr(CC, 'rightBlinker', MISSING),
 
                 # Cruise Control Commands
-                'cruiseControl_cancel': CC.cruiseControl.cancel,
-                'cruiseControl_override': CC.cruiseControl.override,
-                'cruiseControl_resume': CC.cruiseControl.resume,
 
                 # HUD Control
-                'hudControl_setSpeed': CC.hudControl.setSpeed,
-                'hudControl_leadVisible': CC.hudControl.leadVisible,
-                'hudControl_leadDistanceBars': CC.hudControl.leadDistanceBars,
-                'hudControl_visualAlert': str(CC.hudControl.visualAlert),
-                'hudControl_audibleAlert': str(CC.hudControl.audibleAlert),
-                'hudControl_rightLaneVisible': CC.hudControl.rightLaneVisible,
-                'hudControl_leftLaneVisible': CC.hudControl.leftLaneVisible,
-                'hudControl_rightLaneDepart': CC.hudControl.rightLaneDepart,
-                'hudControl_leftLaneDepart': CC.hudControl.leftLaneDepart,
 
                 # Controls State
-                'controlsState_curvature': controlsState.curvature,
-                'controlsState_lateralControlState': str(controlsState.lateralControlState.which()),
+                'controlsState_curvature': controlsState.curvature if controlsState else MISSING,
+                'controlsState_lateralControlState': str(controlsState.lateralControlState.which()) if controlsState else 'none',
 
                 # Selfdrive State
-                'selfdriveState_state': str(selfdriveState.state),
-                'selfdriveState_enabled': selfdriveState.enabled,
-                'selfdriveState_active': selfdriveState.active,
-                'selfdriveState_engageable': selfdriveState.engageable,
-                'selfdriveState_alertText1': selfdriveState.alertText1,
-                'selfdriveState_alertText2': selfdriveState.alertText2,
-                'selfdriveState_alertStatus': str(selfdriveState.alertStatus),
-                'selfdriveState_alertSize': str(selfdriveState.alertSize),
 
                 # CAN Stats
                 'can_valid': sm.valid.get('can', True),
-                'can_error_count': getattr(sm.get('can', None), 'canErrorCounter', 0) if sm.get('can') else 0,
+                'can_error_count': MISSING,
             }
 
             self.csv_writer.writerow(row)
@@ -441,11 +433,8 @@ def loggerd_thread():
                     'joystick_active': sm.valid['testJoystick'],
                 }
 
-                # Log the frame
-                if controlsState and selfdriveState:
-                    logger.log_frame(sm, CC, controlsState, selfdriveState, system_state)
-
-            # Print status every 10 seconds
+                # Log the frame (controlsState and selfdriveState are optional)
+                logger.log_frame(sm, CC, controlsState, selfdriveState, system_state)            # Print status every 10 seconds
             if loop_count % 1000 == 0:
                 status = "LOGGING" if logger.logging_enabled else "IDLE"
                 rows = f" ({logger.row_count} rows)" if logger.logging_enabled else ""
