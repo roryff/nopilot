@@ -154,8 +154,8 @@ def joystickd_thread():
               break
 
         # If never disabled by user, allow joystick to enable
-        if not user_disabled:
-          system_enabled = joystick_active
+        # if not user_disabled:
+        #   system_enabled = joystick_active
 
         # ---------------------------------------------------------------------
         # Control mode flags
