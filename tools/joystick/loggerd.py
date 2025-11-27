@@ -85,6 +85,10 @@ class ComprehensiveLogger:
             'steerFaultPermanent',
             'steerWarning',
 
+            # Car State - Blind spots
+            'leftBlindspot',
+            'rightBlindspot'
+
             # Car State - Pedals
             'gas',
             'gasPressed',
@@ -114,14 +118,6 @@ class ComprehensiveLogger:
             'espActive',
             'accFaulted',
 
-            # Live Parameters
-            'liveParameters_valid',
-            'liveParameters_angleOffsetDeg',
-            'liveParameters_angleOffsetAverageDeg',
-            'liveParameters_stiffnessFactor',
-            'liveParameters_steerRatio',
-            'liveParameters_roll',
-
             # Actuator Commands (What we're sending)
             'actuators_accel',
             'actuators_torque',
@@ -145,40 +141,10 @@ class ComprehensiveLogger:
             'longActive',
             'leftBlinker_cmd',
             'rightBlinker_cmd',
-
-            # Cruise Control Commands
-            'cruiseControl_cancel',
-            'cruiseControl_override',
-            'cruiseControl_resume',
-
-            # HUD Control
-            'hudControl_setSpeed',
-            'hudControl_leadVisible',
-            'hudControl_leadDistanceBars',
-            'hudControl_visualAlert',
-            'hudControl_audibleAlert',
-            'hudControl_rightLaneVisible',
-            'hudControl_leftLaneVisible',
-            'hudControl_rightLaneDepart',
-            'hudControl_leftLaneDepart',
-
             # Controls State
             'controlsState_curvature',
             'controlsState_lateralControlState',
 
-            # Selfdrive State
-            'selfdriveState_state',
-            'selfdriveState_enabled',
-            'selfdriveState_active',
-            'selfdriveState_engageable',
-            'selfdriveState_alertText1',
-            'selfdriveState_alertText2',
-            'selfdriveState_alertStatus',
-            'selfdriveState_alertSize',
-
-            # CAN Message Stats (if available)
-            'can_valid',
-            'can_error_count',
         ]
 
     def start_logging(self):
@@ -276,7 +242,12 @@ class ComprehensiveLogger:
                 'steeringPressed': getattr(CS, 'steeringPressed', MISSING),
                 'steerFaultTemporary': getattr(CS, 'steerFaultTemporary', MISSING),
                 'steerFaultPermanent': getattr(CS, 'steerFaultPermanent', MISSING),
-                'steerWarning': getattr(CS, 'steerWarning', MISSING),  # Field doesn't exist in schema
+                'steerWarning': getattr(CS, 'steerWarning', MISSING),
+
+
+                # Car State - Blind spots
+                'leftBlindspot': getattr(CS, 'leftBlindspot', MISSING),
+                'rightBlindspot': getattr(CS, 'rightBlindspot', MISSING),
 
                 # Car State - Pedals
                 'gas': getattr(CS, 'gas', MISSING),  # Field doesn't exist in CarState
@@ -307,13 +278,6 @@ class ComprehensiveLogger:
                 'espActive': getattr(CS, 'espActive', False),
                 'accFaulted': getattr(CS, 'accFaulted', False),
 
-                # Live Parameters
-                'liveParameters_valid': sm.valid.get('liveParameters', False) if lp else False,
-                'liveParameters_angleOffsetDeg': lp.angleOffsetDeg if lp else MISSING,
-                'liveParameters_angleOffsetAverageDeg': lp.angleOffsetAverageDeg if lp else MISSING,
-                'liveParameters_stiffnessFactor': lp.stiffnessFactor if lp else MISSING,
-                'liveParameters_steerRatio': lp.steerRatio if lp else MISSING,
-                'liveParameters_roll': lp.roll if lp else MISSING,
 
                 # Actuator Commands
                 'actuators_accel': getattr(CC.actuators, 'accel', MISSING) if hasattr(CC, 'actuators') else MISSING,
@@ -339,19 +303,10 @@ class ComprehensiveLogger:
                 'leftBlinker_cmd': getattr(CC, 'leftBlinker', MISSING),
                 'rightBlinker_cmd': getattr(CC, 'rightBlinker', MISSING),
 
-                # Cruise Control Commands
-
-                # HUD Control
-
-                # Controls State
                 'controlsState_curvature': controlsState.curvature if controlsState else MISSING,
                 'controlsState_lateralControlState': str(controlsState.lateralControlState.which()) if controlsState else 'none',
 
-                # Selfdrive State
 
-                # CAN Stats
-                'can_valid': sm.valid.get('can', True),
-                'can_error_count': MISSING,
             }
 
             self.csv_writer.writerow(row)
