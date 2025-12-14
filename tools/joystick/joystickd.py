@@ -39,7 +39,7 @@ def joystickd_thread():
     JOYSTICK_TIMEOUT = 5
 
     system_enabled = False
-    user_disabled = False
+    user_disabled = True
     joystick_active = False
     graceful_stop_debounce = -1
 
@@ -148,6 +148,9 @@ def joystickd_thread():
                              car.CarState.ButtonEvent.Type.resumeCruise,
                              car.CarState.ButtonEvent.Type.mainCruise,
                              car.CarState.ButtonEvent.Type.accelCruise] and button.pressed:
+              if not joystick_active:
+                print(f"joystickd: CRUISE BUTTON pressed but joystick inactive - cannot re-enable.")
+                break
               user_disabled = False
               system_enabled = True
               print(f"joystickd: CRUISE BUTTON pressed - System re-enabled!")
@@ -160,7 +163,7 @@ def joystickd_thread():
         # ---------------------------------------------------------------------
         # Control mode flags
         # ---------------------------------------------------------------------
-        CC.enabled = system_enabled and not CS.steerFaultPermanent
+        CC.enabled = system_enabled and not CS.steerFaultPermanent 
         CC.latActive = CC.enabled and not CS.steerFaultTemporary
         CC.longActive = CC.enabled and CP.openpilotLongitudinalControl
 
@@ -194,7 +197,20 @@ def joystickd_thread():
         # ---------------------------------------------------------------------
         # Longitudinal control
         # ---------------------------------------------------------------------
-        if CC.longActive:
+        # Graceful stop override - takes priority over normal long control
+        if system_enabled and not joystick_active and graceful_stop_debounce >= 0:
+          if graceful_stop_debounce > 0:
+            actuators.accel = -1.0
+            if loop_count % 10 == 0:  # Print every 0.1s during countdown
+              print(f"joystickd: GRACEFUL STOP - accel: -1.0, countdown: {graceful_stop_debounce / 100:.1f}s")
+          elif graceful_stop_debounce == 0:
+            actuators.accel = -3.0
+            print(f"joystickd: HARD STOP - accel: -3.0")
+
+          actuators.longControlState = (
+            LongCtrlState.pid if sm['carState'].vEgo > 0.1 else LongCtrlState.stopping
+          )
+        elif CC.longActive:
           actuators.accel = 4.0 * float(np.clip(joystick_axes[0], -1, 1))
 
           if sm['carState'].vEgo > 0.1:
@@ -207,11 +223,7 @@ def joystickd_thread():
           if loop_count % print_loop == 0:
             print(f"joystickd: Long control - accel: {actuators.accel:.3f}, state: {actuators.longControlState}, vEgo: {sm['carState'].vEgo:.2f}")
         else:
-          if graceful_stop_debounce > 0:
-            actuators.accel = -1.0
-          elif graceful_stop_debounce == 0:
-            actuators.accel = -3.0
-
+          actuators.accel = 0.0
           actuators.longControlState = (
             LongCtrlState.pid if sm['carState'].vEgo > 0.1 else LongCtrlState.stopping
           )
@@ -265,13 +277,20 @@ def joystickd_thread():
         selfdriveState = ss_msg.selfdriveState
 
         # Set proper state based on our control logic
-        if user_disabled:
+        if False:
           selfdriveState.state = log.SelfdriveState.OpenpilotState.disabled
-          selfdriveState.alertText1 = "System Disabled"
-          selfdriveState.alertText2 = "Press cruise button to re-enable"
-          selfdriveState.alertStatus = log.SelfdriveState.AlertStatus.userPrompt
-          selfdriveState.alertSize = log.SelfdriveState.AlertSize.mid
-        elif not joystick_active and graceful_stop_debounce >= 0:
+          selfdriveState.alertText1 = "ACC FAULT"
+          selfdriveState.alertText2 = "TAKE CONTROL"
+          selfdriveState.alertStatus = log.SelfdriveState.AlertStatus.critical
+          selfdriveState.alertSize = log.SelfdriveState.AlertSize.full
+        elif CS.steerFaultPermanent:
+          selfdriveState.state = log.SelfdriveState.OpenpilotState.disabled
+          selfdriveState.alertText1 = "STEER FAULT"
+          selfdriveState.alertText2 = "TAKE CONTROL"
+          selfdriveState.alertStatus = log.SelfdriveState.AlertStatus.critical
+          selfdriveState.alertSize = log.SelfdriveState.AlertSize.full
+
+        elif system_enabled and not joystick_active and graceful_stop_debounce >= 0:
           selfdriveState.state = log.SelfdriveState.OpenpilotState.disabled
           selfdriveState.alertText1 = "JOYSTICK LOST - TAKE CONTROL"
           selfdriveState.alertText2 = f"Stopping in {graceful_stop_debounce / 100:.1f}s"
@@ -283,6 +302,12 @@ def joystickd_thread():
           selfdriveState.alertText2 = "Connect joystick input"
           selfdriveState.alertStatus = log.SelfdriveState.AlertStatus.normal
           selfdriveState.alertSize = log.SelfdriveState.AlertSize.small
+        elif user_disabled:
+          selfdriveState.state = log.SelfdriveState.OpenpilotState.disabled
+          selfdriveState.alertText1 = "System Disabled"
+          selfdriveState.alertText2 = "Press cruise button to re-enable"
+          selfdriveState.alertStatus = log.SelfdriveState.AlertStatus.userPrompt
+          selfdriveState.alertSize = log.SelfdriveState.AlertSize.mid
 
         selfdriveState.enabled = CC.enabled
         selfdriveState.active = CC.latActive or CC.longActive

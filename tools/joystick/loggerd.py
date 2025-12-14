@@ -87,7 +87,7 @@ class ComprehensiveLogger:
 
             # Car State - Blind spots
             'leftBlindspot',
-            'rightBlindspot'
+            'rightBlindspot',
 
             # Car State - Pedals
             'gas',
