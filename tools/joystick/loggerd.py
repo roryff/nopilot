@@ -354,7 +354,7 @@ def loggerd_thread():
             loop_count += 1
 
             # Check if logging should be enabled/disabled
-            if sm.updated['testJoystick'] and sm.valid['testJoystick']:
+            if sm.valid['testJoystick']:
                 joy = sm['testJoystick']
                 logging_requested = getattr(joy, 'loggingEnabled', False)
 
