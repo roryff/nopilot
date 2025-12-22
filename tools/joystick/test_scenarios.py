@@ -67,10 +67,12 @@ def accel_test(sm, pm):
         joy_msg.testJoystick.axes = [0.0, 0.0]
         pm.send('testJoystick', joy_msg)
         rk.keep_time()
-
-    print(f"Sending full forward for {ACCEL_HOLD_TIME} seconds...")
+    loop_counter = 0
     while time.time() - start < ACCEL_HOLD_TIME:
-        sm.update(0)
+        if loop_counter % 10 == 0:
+            sm.update(0)
+        loop_counter += 1
+
         joy_msg = messaging.new_message('testJoystick')
         joy_msg.valid = True
         joy_msg.testJoystick.axes = [1.0, 0.0]  # Full forward
@@ -83,8 +85,12 @@ def accel_test(sm, pm):
     print("Sending full back until stopped...")
 
     # Full back for 10 seconds
+    loop_counter = 0
     while time.time() - start < ACCEL_HOLD_TIME + 10.0:
-        sm.update(0)
+        if loop_counter % 10 == 0:
+            sm.update(0)
+        loop_counter += 1
+
         joy_msg = messaging.new_message('testJoystick')
         joy_msg.valid = True
         joy_msg.testJoystick.axes = [-1.0, 0.0]  # Full back
@@ -140,9 +146,16 @@ def steer_test(sm, pm):
 
     print("Max right steering...")
     start = time.time()
+    loop_counter = 0
+    current_speed_kmh = sm['carState'].vEgo * 3.6
     while time.time() - start < STEER_HOLD_TIME:
-        sm.update(0)
-        speed_error = 20 - sm['carState'].vEgo * 3.6
+        # Update speed cache less frequently to minimize message processing
+        if loop_counter % 20 == 0:
+            sm.update(0)
+            current_speed_kmh = sm['carState'].vEgo * 3.6
+        loop_counter += 1
+
+        speed_error = 10.0 - current_speed_kmh
         accel = max(-1.0, min(1.0, speed_error * 0.3))
 
         joy_msg = messaging.new_message('testJoystick')
@@ -156,9 +169,16 @@ def steer_test(sm, pm):
 
     print("Max left steering...")
     start = time.time()
+    loop_counter = 0
+    current_speed_kmh = sm['carState'].vEgo * 3.6
     while time.time() - start < STEER_HOLD_TIME:
-        sm.update(0)
-        speed_error = 20.0 - sm['carState'].vEgo * 3.6
+        # Update speed cache less frequently to minimize message processing
+        if loop_counter % 20 == 0:
+            sm.update(0)
+            current_speed_kmh = sm['carState'].vEgo * 3.6
+        loop_counter += 1
+
+        speed_error = 10.0 - current_speed_kmh
         accel = max(-1.0, min(1.0, speed_error * 0.3))
 
         joy_msg = messaging.new_message('testJoystick')
@@ -172,9 +192,16 @@ def steer_test(sm, pm):
     # keep speeed and drive forward for 4 seconds
     print("Driving forward for 4 seconds...")
     start = time.time()
+    loop_counter = 0
+    current_speed_kmh = sm['carState'].vEgo * 3.6
     while time.time() - start < 4.0:
-        sm.update(0)
-        speed_error = 20.0 - sm['carState'].vEgo * 3.6
+        # Update speed cache less frequently to minimize message processing
+        if loop_counter % 20 == 0:
+            sm.update(0)
+            current_speed_kmh = sm['carState'].vEgo * 3.6
+        loop_counter += 1
+
+        speed_error = 10.0 - current_speed_kmh
         accel = max(-1.0, min(1.0, speed_error * 0.3))
 
         joy_msg = messaging.new_message('testJoystick')
