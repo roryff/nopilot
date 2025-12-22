@@ -42,6 +42,7 @@ def joystickd_thread():
     user_disabled = True
     joystick_active = False
     graceful_stop_debounce = -1
+    joystick_axes = [0.0, 0.0]  # Initialize and hold last valid value
 
     while True:
       try:
@@ -184,13 +185,15 @@ def joystickd_thread():
         # Joystick input
         # ---------------------------------------------------------------------
 
-        # Get joystick input or default to neutral
+        # Update joystick axes if new data available, otherwise keep last value
         if joystick_active and sm.updated['testJoystick']:
           joystick_axes = sm['testJoystick'].axes
           if loop_count % print_loop == 0:
             print(f"joystickd: Got joystick axes: {joystick_axes}")
-        else:
+        elif not joystick_active:
+          # Only reset to zero when joystick is truly inactive
           joystick_axes = [0.0, 0.0]
+        # else: keep previous joystick_axes value
 
 
         actuators = CC.actuators
