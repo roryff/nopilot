@@ -12,7 +12,6 @@ from openpilot.common.swaglog import cloudlog
 
 LongCtrlState = car.CarControl.Actuators.LongControlState
 
-MAX_LAT_ACCEL = 3.0
 print_loop=1000
 
 def joystickd_thread():
@@ -164,7 +163,7 @@ def joystickd_thread():
         # ---------------------------------------------------------------------
         # Control mode flags
         # ---------------------------------------------------------------------
-        CC.enabled = system_enabled and not CS.steerFaultPermanent 
+        CC.enabled = system_enabled and not CS.steerFaultPermanent
         CC.latActive = CC.enabled and not CS.steerFaultTemporary
         CC.longActive = CC.enabled and CP.openpilotLongitudinalControl
 
@@ -280,7 +279,7 @@ def joystickd_thread():
         selfdriveState = ss_msg.selfdriveState
 
         # Set proper state based on our control logic
-        if False:
+        if CS.ACCFaulted:
           selfdriveState.state = log.SelfdriveState.OpenpilotState.disabled
           selfdriveState.alertText1 = "ACC FAULT"
           selfdriveState.alertText2 = "TAKE CONTROL"
