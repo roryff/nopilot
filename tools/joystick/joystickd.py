@@ -279,7 +279,7 @@ def joystickd_thread():
         selfdriveState = ss_msg.selfdriveState
 
         # Set proper state based on our control logic
-        if CS.ACCFaulted:
+        if CS.accFaulted:
           selfdriveState.state = log.SelfdriveState.OpenpilotState.disabled
           selfdriveState.alertText1 = "ACC FAULT"
           selfdriveState.alertText2 = "TAKE CONTROL"
