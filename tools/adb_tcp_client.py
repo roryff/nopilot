@@ -202,6 +202,10 @@ def build_sensor_payload(sm, loop_count):
     actuators = safe_get(CC, 'actuators', None)
     actuators_output = safe_get(carOutput, 'actuatorsOutput', None)
 
+    # Determine speed sign: negative when in reverse
+    in_reverse = 'reverse' in str(safe_get(CS, 'gearShifter', '')).lower()
+    speed_sign = -1 if in_reverse else 1
+
     return {
         'type': 'sensor',
         'timestamp': sm.logMonoTime.get('carState', 0),
@@ -219,8 +223,9 @@ def build_sensor_payload(sm, loop_count):
         'joy_button_count': len(safe_get(joy, 'buttons', [])) if joy else MISSING,
         'joy_logging_enabled': safe_get(joy, 'loggingEnabled', False),
 
-        'vEgo': safe_get(CS, 'vEgo', MISSING),
-        'vEgoRaw': safe_get(CS, 'vEgoRaw', MISSING),
+        # Negate speed when in reverse so callers see signed speed
+        'vEgo': speed_sign * safe_get(CS, 'vEgo', 0.0) if safe_get(CS, 'vEgo', MISSING) is not None else MISSING,
+        'vEgoRaw': speed_sign * safe_get(CS, 'vEgoRaw', 0.0) if safe_get(CS, 'vEgoRaw', MISSING) is not None else MISSING,
         'aEgo': safe_get(CS, 'aEgo', MISSING),
         'yawRate': safe_get(CS, 'yawRate', MISSING),
         'standstill': safe_get(CS, 'standstill', False),
@@ -294,11 +299,17 @@ def build_sensor_payload(sm, loop_count):
 
 
 def build_debug_sensor_payload(loop_count, t):
-    speed = 10.0 + 5.0 * math.sin(t * 0.6)
-    accel = 0.5 * math.sin(t * 1.2)
+    # Cycle through drive and reverse every ~15 seconds for demo purposes
+    in_reverse = (t % 30.0) > 15.0
+    gear = 'reverse' if in_reverse else 'drive'
+    speed_sign = -1 if in_reverse else 1
+
+    raw_speed = 10.0 + 5.0 * math.sin(t * 0.6)
+    speed = speed_sign * raw_speed
+    accel = speed_sign * 0.5 * math.sin(t * 1.2)
     steer = 10.0 * math.sin(t * 0.9)
     yaw = 0.2 * math.sin(t * 0.7)
-    standstill = speed < 0.2
+    standstill = raw_speed < 0.2
 
     return {
         'type': 'sensor',
@@ -322,10 +333,10 @@ def build_debug_sensor_payload(loop_count, t):
         'aEgo': accel,
         'yawRate': yaw,
         'standstill': standstill,
-        'wheelSpeeds_fl': max(speed - 0.2, 0.0),
-        'wheelSpeeds_fr': max(speed + 0.2, 0.0),
-        'wheelSpeeds_rl': max(speed - 0.1, 0.0),
-        'wheelSpeeds_rr': max(speed + 0.1, 0.0),
+        'wheelSpeeds_fl': max(raw_speed - 0.2, 0.0),
+        'wheelSpeeds_fr': max(raw_speed + 0.2, 0.0),
+        'wheelSpeeds_rl': max(raw_speed - 0.1, 0.0),
+        'wheelSpeeds_rr': max(raw_speed + 0.1, 0.0),
 
         'steeringAngleDeg': steer,
         'steeringRateDeg': 5.0 * math.cos(t * 0.9),
@@ -346,10 +357,10 @@ def build_debug_sensor_payload(loop_count, t):
         'brakeHoldActive': False,
         'parkingBrake': False,
 
-        'gearShifter': 'drive',
+        'gearShifter': gear,
         'cruiseState_enabled': True,
         'cruiseState_available': True,
-        'cruiseState_speed': speed,
+        'cruiseState_speed': raw_speed,
         'cruiseState_standstill': standstill,
 
         'leftBlinker': False,
