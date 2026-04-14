@@ -106,10 +106,10 @@ def handle_server_connection(host, port):
 
                         last_joy_time = recv_time
 
-                        # Debug: print every 20 messages (at 100Hz = 5Hz output)
+                        # Debug: print every 10 messages (at 50Hz = 5Hz output)
                         msg_count = globals().get('msg_count', 0) + 1
                         globals()['msg_count'] = msg_count
-                        if msg_count % 20 == 0:
+                        if msg_count % 10 == 0:
                             log_status = "[LOG]" if logging_enabled else ""
                             print(f'\rJoystick: gb={axes[0]:+.3f}, steer={axes[1]:+.3f} {log_status}', end='', flush=True)
 
@@ -416,7 +416,7 @@ def sensor_broadcast_thread(debug_sensors=False):
             'can'
         ], frequency=1.0 / DT_CTRL)
 
-    rk = Ratekeeper(100, print_delay_threshold=None)
+    rk = Ratekeeper(50, print_delay_threshold=None)  # 50 Hz — Jetson consumers run at ≤20 Hz
     loop_count = 0
 
     while True:
