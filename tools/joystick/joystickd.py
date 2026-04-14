@@ -35,7 +35,7 @@ def joystickd_thread():
     CS_prev = None
 
     last_joystick_update = 0
-    JOYSTICK_TIMEOUT = 5
+    JOYSTICK_TIMEOUT = 20  # 200 ms grace at 100 Hz (was 5 = 50 ms, too tight for 50 Hz sender)
 
     system_enabled = False
     user_disabled = True
