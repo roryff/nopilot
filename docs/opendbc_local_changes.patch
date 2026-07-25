@@ -1,0 +1,120 @@
+diff --git a/opendbc/car/hyundai/carcontroller.py b/opendbc/car/hyundai/carcontroller.py
+index 6d6aa8ad..25f99fea 100644
+--- a/opendbc/car/hyundai/carcontroller.py
++++ b/opendbc/car/hyundai/carcontroller.py
+@@ -61,7 +61,11 @@ class CarController(CarControllerBase):
+ 
+     # steering torque
+     new_torque = int(round(actuators.torque * self.params.STEER_MAX))
+-    apply_torque = apply_driver_steer_torque_limits(new_torque, self.apply_torque_last, CS.out.steeringTorque, self.params)
++    # NAP-lab: driver-torque clamp disabled by passing driver_torque=0 so self-aligning
++    # torque at high steering angle is not read as a driver override (rate limiting kept).
++    # Panda side disabled via .disable_driver_torque_limit in safety/modes/hyundai.h.
++    # See docs/steering_driver_torque_limit.md
++    apply_torque = apply_driver_steer_torque_limits(new_torque, self.apply_torque_last, 0, self.params)
+ 
+     # >90 degree steering fault prevention
+     self.angle_limit_counter, apply_steer_req = common_fault_avoidance(abs(CS.out.steeringAngleDeg) >= MAX_ANGLE, CC.latActive,
+diff --git a/opendbc/car/hyundai/carstate.py b/opendbc/car/hyundai/carstate.py
+index 60978970..9c1c23eb 100644
+--- a/opendbc/car/hyundai/carstate.py
++++ b/opendbc/car/hyundai/carstate.py
+@@ -86,6 +86,12 @@ class CarState(CarStateBase):
+ 
+     ret.seatbeltUnlatched = cp.vl["CGW1"]["CF_Gway_DrvSeatBeltSw"] == 0
+ 
++    # Store individual wheel speeds in struct (convert from KPH to m/s)
++    ret.wheelSpeeds.fl = cp.vl["WHL_SPD11"]["WHL_SPD_FL"] * CV.KPH_TO_MS
++    ret.wheelSpeeds.fr = cp.vl["WHL_SPD11"]["WHL_SPD_FR"] * CV.KPH_TO_MS
++    ret.wheelSpeeds.rl = cp.vl["WHL_SPD11"]["WHL_SPD_RL"] * CV.KPH_TO_MS
++    ret.wheelSpeeds.rr = cp.vl["WHL_SPD11"]["WHL_SPD_RR"] * CV.KPH_TO_MS
++
+     self.parse_wheel_speeds(ret,
+       cp.vl["WHL_SPD11"]["WHL_SPD_FL"],
+       cp.vl["WHL_SPD11"]["WHL_SPD_FR"],
+@@ -226,6 +232,12 @@ class CarState(CarStateBase):
+     gear = cp.vl[self.gear_msg_canfd]["GEAR"]
+     ret.gearShifter = self.parse_gear_shifter(self.shifter_values.get(gear))
+ 
++    # Store individual wheel speeds in struct (convert from KPH to m/s)
++    ret.wheelSpeeds.fl = cp.vl["WHEEL_SPEEDS"]["WHL_SpdFLVal"] * CV.KPH_TO_MS
++    ret.wheelSpeeds.fr = cp.vl["WHEEL_SPEEDS"]["WHL_SpdFRVal"] * CV.KPH_TO_MS
++    ret.wheelSpeeds.rl = cp.vl["WHEEL_SPEEDS"]["WHL_SpdRLVal"] * CV.KPH_TO_MS
++    ret.wheelSpeeds.rr = cp.vl["WHEEL_SPEEDS"]["WHL_SpdRRVal"] * CV.KPH_TO_MS
++
+     # TODO: figure out positions
+     self.parse_wheel_speeds(ret,
+       cp.vl["WHEEL_SPEEDS"]["WHL_SpdFLVal"],
+diff --git a/opendbc/car/hyundai/values.py b/opendbc/car/hyundai/values.py
+index d7b1733b..8de6f377 100644
+--- a/opendbc/car/hyundai/values.py
++++ b/opendbc/car/hyundai/values.py
+@@ -16,12 +16,12 @@ class CarControllerParams:
+   ACCEL_MAX = 2.0 # m/s
+ 
+   def __init__(self, CP):
+-    self.STEER_DELTA_UP = 3
++    self.STEER_DELTA_UP = 4
+     self.STEER_DELTA_DOWN = 7
+     self.STEER_DRIVER_ALLOWANCE = 50
+     self.STEER_DRIVER_MULTIPLIER = 2
+     self.STEER_DRIVER_FACTOR = 1
+-    self.STEER_THRESHOLD = 150
++    self.STEER_THRESHOLD = 300
+     self.STEER_STEP = 1  # 100 Hz
+ 
+     if CP.flags & HyundaiFlags.CANFD:
+diff --git a/opendbc/safety/lateral.h b/opendbc/safety/lateral.h
+index f842eaa4..2cf8b439 100644
+--- a/opendbc/safety/lateral.h
++++ b/opendbc/safety/lateral.h
+@@ -75,7 +75,12 @@ bool steer_torque_cmd_checks(int desired_torque, int steer_req, const TorqueStee
+ 
+     // *** torque rate limit check ***
+     if (limits.type == TorqueDriverLimited) {
+-      violation |= driver_limit_check(desired_torque, desired_torque_last, &torque_driver,
++      // NAP-lab: when disable_driver_torque_limit is set, feed a zero driver sample so the
++      // driver bound never binds (self-aligning torque can't clamp the actuator below the
++      // command). Global max, rate and RT-delta limits still apply. See docs/steering_driver_torque_limit.md
++      static const struct sample_t zero_driver = {0};
++      const struct sample_t *driver_sample = limits.disable_driver_torque_limit ? &zero_driver : &torque_driver;
++      violation |= driver_limit_check(desired_torque, desired_torque_last, driver_sample,
+                                       max_torque, limits.max_rate_up, limits.max_rate_down,
+                                       limits.driver_torque_allowance, limits.driver_torque_multiplier);
+     } else {
+diff --git a/opendbc/safety/modes/hyundai.h b/opendbc/safety/modes/hyundai.h
+index 1b42ea48..600c3e29 100644
+--- a/opendbc/safety/modes/hyundai.h
++++ b/opendbc/safety/modes/hyundai.h
+@@ -10,6 +10,7 @@
+   .max_rt_delta = 112, \
+   .driver_torque_allowance = 50, \
+   .driver_torque_multiplier = 2, \
++  .disable_driver_torque_limit = true,  /* NAP-lab: self-aligning torque was throttling the actuator; see docs/steering_driver_torque_limit.md */ \
+   .type = TorqueDriverLimited, \
+    /* the EPS faults when the steering angle is above a certain threshold for too long. to prevent this, */ \
+    /* we allow setting CF_Lkas_ActToi bit to 0 while maintaining the requested torque value for two consecutive frames */ \
+@@ -177,7 +178,7 @@ static void hyundai_rx_hook(const CANPacket_t *msg) {
+ }
+ 
+ static bool hyundai_tx_hook(const CANPacket_t *msg) {
+-  const TorqueSteeringLimits HYUNDAI_STEERING_LIMITS = HYUNDAI_LIMITS(384, 3, 7);
++  const TorqueSteeringLimits HYUNDAI_STEERING_LIMITS = HYUNDAI_LIMITS(384, 4, 7);
+   const TorqueSteeringLimits HYUNDAI_STEERING_LIMITS_ALT = HYUNDAI_LIMITS(270, 2, 3);
+   const TorqueSteeringLimits HYUNDAI_STEERING_LIMITS_ALT_2 = HYUNDAI_LIMITS(170, 2, 3);
+ 
+diff --git a/opendbc/safety/safety_declarations.h b/opendbc/safety/safety_declarations.h
+index 31918c04..0f5bfc2c 100644
+--- a/opendbc/safety/safety_declarations.h
++++ b/opendbc/safety/safety_declarations.h
+@@ -109,6 +109,10 @@ typedef struct {
+   // driver torque limits
+   const int driver_torque_allowance;
+   const int driver_torque_multiplier;
++  // NAP-lab: when true, measured driver torque is ignored in the driver limit check
++  // (self-aligning torque was read as a driver override and throttled the actuator).
++  // Global max, rate and RT-delta limits still apply. Defaults to false.
++  const bool disable_driver_torque_limit;
+ 
+   // motor torque limits
+   const int max_torque_error;
